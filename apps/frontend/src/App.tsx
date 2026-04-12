@@ -2848,8 +2848,8 @@ const VolunteerCRM = ({ token, logout }: { token: string, logout: () => void }) 
 
 
 const AIWriter = ({ token, logout }: { token: string, logout: () => void }) => {
-  const [metrics, setMetrics] = useState('We served 500 low-income patients last month across 3 mobile clinics. We need $50,000 for new portable ultrasound equipment to expand our prenatal care division. Our volunteer retention is 92%.')
-  const [prompt, setPrompt] = useState('Write an executive summary for a federal healthcare grant proposal.')
+  const [metrics, setMetrics] = useState('')
+  const [prompt, setPrompt] = useState('')
   const [result, setResult] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [isMatchMode, setIsMatchMode] = useState(false)
@@ -2908,18 +2908,18 @@ const AIWriter = ({ token, logout }: { token: string, logout: () => void }) => {
         </div>
       </div>
 
-      {/* Two-column layout — no cards, just clean columns */}
-      <div className="flex gap-10" style={{ minHeight: '70vh' }}>
+      {/* Two-column layout */}
+      <div className="flex gap-8" style={{ minHeight: '70vh' }}>
 
         {/* Left — inputs */}
-        <div className="w-80 flex-shrink-0 flex flex-col gap-6 border-r border-gray-100 pr-10">
+        <div className="w-80 flex-shrink-0 flex flex-col gap-5 border-r border-gray-100 pr-8">
           <div>
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-2">
               {isMatchMode ? 'Clinic Context' : 'Clinic Context & Metrics'}
             </p>
             <textarea
-              className="w-full border-0 border-b border-gray-200 pb-3 focus:outline-none focus:border-gray-400 transition-colors resize-none text-sm text-gray-700 leading-relaxed bg-transparent"
-              style={{ minHeight: '180px' }}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition-all resize-none text-sm text-gray-700 leading-relaxed bg-white"
+              style={{ minHeight: '160px' }}
               value={metrics}
               onChange={e => setMetrics(e.target.value)}
               placeholder="Describe your clinic's mission, patient volume, key metrics, and funding needs..."
@@ -2928,10 +2928,10 @@ const AIWriter = ({ token, logout }: { token: string, logout: () => void }) => {
 
           {!isMatchMode && (
             <div>
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Instruction</p>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-2">Instruction</p>
               <input
                 type="text"
-                className="w-full border-0 border-b border-gray-200 pb-2 focus:outline-none focus:border-gray-400 transition-colors text-sm text-gray-700 bg-transparent"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition-all text-sm text-gray-700 bg-white"
                 value={prompt}
                 onChange={e => setPrompt(e.target.value)}
                 placeholder="e.g. Write an executive summary..."
@@ -2939,10 +2939,9 @@ const AIWriter = ({ token, logout }: { token: string, logout: () => void }) => {
             </div>
           )}
 
-          {/* Quick prompts */}
           {!isMatchMode && (
             <div>
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2">Quick prompts</p>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-2">Quick prompts</p>
               <div className="flex flex-col gap-1">
                 {[
                   'Write an executive summary for a federal grant',
@@ -2953,7 +2952,7 @@ const AIWriter = ({ token, logout }: { token: string, logout: () => void }) => {
                   <button
                     key={p}
                     onClick={() => setPrompt(p)}
-                    className={`text-left text-xs py-1.5 text-gray-500 hover:text-gray-900 transition-colors border-l-2 pl-2.5 ${prompt === p ? 'border-blue-500 text-gray-900' : 'border-transparent'}`}
+                    className={`text-left text-xs py-1.5 px-2.5 rounded transition-colors border-l-2 ${prompt === p ? 'border-blue-500 text-gray-900 bg-blue-50' : 'border-transparent text-gray-500 hover:text-gray-900 hover:bg-gray-50'}`}
                   >
                     {p}
                   </button>
@@ -2962,11 +2961,11 @@ const AIWriter = ({ token, logout }: { token: string, logout: () => void }) => {
             </div>
           )}
 
-          <div className="mt-auto pt-4">
+          <div className="pt-2">
             <button
               onClick={handleGenerate}
               disabled={loading}
-              className="w-full flex items-center justify-center gap-2 bg-gray-900 text-white py-2.5 px-4 text-sm font-medium hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full flex items-center justify-center gap-2 bg-gray-900 text-white py-2.5 px-4 rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading
                 ? <><Activity className="animate-spin" size={14} /> {isMatchMode ? 'Searching grants...' : 'Generating...'}</>
@@ -3008,24 +3007,19 @@ const AIWriter = ({ token, logout }: { token: string, logout: () => void }) => {
               </div>
             ) : result ? (
               isMatchMode && Array.isArray(result) ? (
-                // Grant matches — row format, no cards
                 <div className="divide-y divide-gray-100">
                   {result.map((match: any, idx: number) => (
                     <div key={idx} className="py-5 flex items-start gap-5 hover:bg-gray-50/50 transition-colors -mx-2 px-2">
-                      {/* Score */}
-                      <div className="flex-shrink-0 w-12 text-center pt-0.5">
-                        <span className={`text-lg font-bold tabular-nums ${(match.match_score || 0) >= 80 ? 'text-emerald-600' : (match.match_score || 0) >= 60 ? 'text-amber-500' : 'text-gray-400'}`}>
-                          {match.match_score || 0}
+                      {/* Score — number and % inline */}
+                      <div className="flex-shrink-0 pt-0.5">
+                        <span className={`text-base font-bold tabular-nums ${(match.match_score || 0) >= 80 ? 'text-emerald-600' : (match.match_score || 0) >= 60 ? 'text-amber-500' : 'text-gray-400'}`}>
+                          {match.match_score || 0}%
                         </span>
-                        <p className="text-xs text-gray-300 leading-none">%</p>
+                        <p className="text-xs text-gray-300 leading-none">match</p>
                       </div>
-                      {/* Thin divider */}
                       <div className="w-px self-stretch bg-gray-100 flex-shrink-0" />
-                      {/* Content */}
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-4 mb-1">
-                          <h3 className="text-sm font-semibold text-gray-900 leading-snug">{match.title || 'Unknown Grant'}</h3>
-                        </div>
+                        <h3 className="text-sm font-semibold text-gray-900 leading-snug mb-0.5">{match.title || 'Unknown Grant'}</h3>
                         <p className="text-xs text-gray-400 mb-2 uppercase tracking-wide">{match.agency || 'Unknown Agency'}</p>
                         <p className="text-sm text-gray-600 leading-relaxed">{match.reason}</p>
                       </div>
@@ -3033,7 +3027,6 @@ const AIWriter = ({ token, logout }: { token: string, logout: () => void }) => {
                   ))}
                 </div>
               ) : (
-                // Proposal text — clean reading format
                 <div className="text-sm text-gray-700 leading-8 whitespace-pre-wrap max-w-2xl" style={{ fontFamily: 'Georgia, serif', letterSpacing: '0.01em' }}>
                   {result}
                 </div>
@@ -3041,8 +3034,10 @@ const AIWriter = ({ token, logout }: { token: string, logout: () => void }) => {
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-center" style={{ minHeight: '300px' }}>
                 <div className="w-8 h-px bg-gray-200 mx-auto mb-4" />
-                <p className="text-sm text-gray-300">
-                  {isMatchMode ? 'Fill in your clinic context and search for grants' : 'Fill in your context and choose a prompt to generate'}
+                <p className="text-sm text-gray-400">
+                  {isMatchMode
+                    ? 'Describe your clinic above and click Find Matching Grants'
+                    : 'Fill in your clinic context, choose a prompt, and click Generate'}
                 </p>
               </div>
             )}
