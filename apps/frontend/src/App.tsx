@@ -1937,8 +1937,8 @@ const Inventory = ({ token, logout }: { token: string, logout: () => void }) => 
 
   const statusColors: Record<string, string> = {
     'In Stock': 'bg-emerald-50 text-emerald-700 border-emerald-100',
-    'Low Stock': 'bg-amber-50 text-amber-600 border-amber-100',
-    'Critical': 'bg-red-50 text-red-600 border-red-100',
+    'Low Stock': 'bg-amber-50 text-amber-600 border-amber-200',
+    'Critical': 'bg-red-50 text-red-600 border-red-200',
     'On Order': 'bg-sky-50 text-sky-600 border-sky-100',
     'Expired': 'bg-gray-100 text-gray-400 border-gray-200',
     'Recalled': 'bg-gray-100 text-gray-500 border-gray-200',
@@ -1994,15 +1994,15 @@ const Inventory = ({ token, logout }: { token: string, logout: () => void }) => 
       {(lowStockCount > 0 || expiringCount > 0) && (
         <div className="flex gap-3 mb-4">
           {lowStockCount > 0 && (
-            <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
-              <AlertTriangle size={13} className="text-amber-500 flex-shrink-0" />
-              <span><strong>{lowStockCount}</strong> item{lowStockCount > 1 ? 's' : ''} at low or critical stock</span>
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 border border-amber-100 rounded text-xs text-amber-700">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
+              <strong>{lowStockCount}</strong> item{lowStockCount > 1 ? 's' : ''} low or critical
             </div>
           )}
           {expiringCount > 0 && (
-            <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 border border-orange-200 rounded text-xs text-orange-800">
-              <Clock size={13} className="text-orange-500 flex-shrink-0" />
-              <span><strong>{expiringCount}</strong> item{expiringCount > 1 ? 's' : ''} expiring within 90 days</span>
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 border border-amber-100 rounded text-xs text-amber-700">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
+              <strong>{expiringCount}</strong> item{expiringCount > 1 ? 's' : ''} expiring within 90 days
             </div>
           )}
         </div>
@@ -2084,11 +2084,12 @@ const Inventory = ({ token, logout }: { token: string, logout: () => void }) => 
               const isSaving = savingIds.has(item.id)
               const isSelected = selectedRows.has(item.id)
               const rowClass = isSelected ? 'bg-blue-50' : idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'
+              const rowAlert = item.status === 'Critical' ? 'border-l-2 border-l-red-300' : item.status === 'Low Stock' ? 'border-l-2 border-l-amber-300' : isExpired(item.expiration_date) ? 'border-l-2 border-l-gray-300' : 'border-l-2 border-l-transparent'
 
               return (
                 <tr
                   key={item.id}
-                  className={`${rowClass} hover:bg-blue-50/60 transition-colors border-b border-gray-100 group ${item.isNew ? 'ring-1 ring-inset ring-blue-300' : ''}`}
+                  className={`${rowClass} ${rowAlert} hover:bg-blue-50/60 transition-colors border-b border-gray-100 group ${item.isNew ? 'ring-1 ring-inset ring-blue-300' : ''}`}
                 >
                   <td className="px-2 py-0.5 border-r border-gray-100">
                     <input
@@ -2122,7 +2123,7 @@ const Inventory = ({ token, logout }: { token: string, logout: () => void }) => 
                       value={item.quantity}
                       type="number"
                       onChange={v => updateCell(item.id, 'quantity', v)}
-                      className={`font-mono font-semibold w-full ${item.quantity <= 0 ? 'text-red-500' : item.quantity < (item.min_quantity || 10) ? 'text-amber-600' : 'text-gray-700'}`}
+                      className={`font-mono font-semibold w-full ${item.quantity <= 0 ? 'text-red-500' : item.quantity < (item.min_quantity || 10) ? 'text-amber-500' : 'text-gray-700'}`}
                     />
                   </td>
                   {/* Unit */}
@@ -2149,7 +2150,7 @@ const Inventory = ({ token, logout }: { token: string, logout: () => void }) => 
                       value={item.expiration_date ? item.expiration_date.split('T')[0] : ''}
                       type="date"
                       onChange={v => updateCell(item.id, 'expiration_date', v)}
-                      className={`w-full ${isExpired(item.expiration_date) ? 'text-gray-400 line-through' : isExpiringSoon(item.expiration_date) ? 'text-amber-600' : 'text-gray-500'}`}
+                      className={`w-full ${isExpired(item.expiration_date) ? 'text-red-400 line-through' : isExpiringSoon(item.expiration_date) ? 'text-amber-500 font-medium' : 'text-gray-500'}`}
                     />
                   </td>
                   {/* Lot # */}
@@ -2198,8 +2199,8 @@ const Inventory = ({ token, logout }: { token: string, logout: () => void }) => 
             <span>{filtered.length} row{filtered.length !== 1 ? 's' : ''}</span>
             {selectedRows.size > 0 && <span className="text-blue-600">{selectedRows.size} selected</span>}
             <span>Total qty: <strong className="text-gray-700">{filtered.reduce((s, i) => s + (i.quantity || 0), 0).toLocaleString()}</strong></span>
-            <span>Low/critical: <strong className="text-gray-600">{filtered.filter(i => ['Low Stock', 'Critical'].includes(i.status)).length}</strong></span>
-            <span>Expiring ≤90d: <strong className="text-gray-600">{filtered.filter(i => isExpiringSoon(i.expiration_date)).length}</strong></span>
+            <span>Low/critical: <strong className="text-amber-600">{filtered.filter(i => ['Low Stock', 'Critical'].includes(i.status)).length}</strong></span>
+            <span>Expiring ≤90d: <strong className="text-amber-600">{filtered.filter(i => isExpiringSoon(i.expiration_date)).length}</strong></span>
           </div>
         )}
       </div>
