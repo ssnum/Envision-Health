@@ -1936,12 +1936,12 @@ const Inventory = ({ token, logout }: { token: string, logout: () => void }) => 
   ]
 
   const statusColors: Record<string, string> = {
-    'In Stock': 'bg-gray-50 text-gray-600 border-gray-200',
-    'Low Stock': 'bg-gray-100 text-gray-700 border-gray-300',
-    'Critical': 'bg-gray-100 text-gray-800 border-gray-400',
-    'On Order': 'bg-gray-50 text-gray-500 border-gray-200',
+    'In Stock': 'bg-emerald-50 text-emerald-700 border-emerald-100',
+    'Low Stock': 'bg-amber-50 text-amber-600 border-amber-100',
+    'Critical': 'bg-red-50 text-red-600 border-red-100',
+    'On Order': 'bg-sky-50 text-sky-600 border-sky-100',
     'Expired': 'bg-gray-100 text-gray-400 border-gray-200',
-    'Recalled': 'bg-gray-100 text-gray-600 border-gray-300',
+    'Recalled': 'bg-gray-100 text-gray-500 border-gray-200',
     'Discontinued': 'bg-gray-50 text-gray-400 border-gray-100',
   }
 
@@ -2122,7 +2122,7 @@ const Inventory = ({ token, logout }: { token: string, logout: () => void }) => 
                       value={item.quantity}
                       type="number"
                       onChange={v => updateCell(item.id, 'quantity', v)}
-                      className={`font-mono font-semibold w-full ${item.quantity <= 0 ? 'text-gray-500' : item.quantity < (item.min_quantity || 10) ? 'text-gray-700' : 'text-gray-700'}`}
+                      className={`font-mono font-semibold w-full ${item.quantity <= 0 ? 'text-red-500' : item.quantity < (item.min_quantity || 10) ? 'text-amber-600' : 'text-gray-700'}`}
                     />
                   </td>
                   {/* Unit */}
@@ -2149,7 +2149,7 @@ const Inventory = ({ token, logout }: { token: string, logout: () => void }) => 
                       value={item.expiration_date ? item.expiration_date.split('T')[0] : ''}
                       type="date"
                       onChange={v => updateCell(item.id, 'expiration_date', v)}
-                      className={`w-full ${isExpired(item.expiration_date) ? 'text-gray-500 line-through' : isExpiringSoon(item.expiration_date) ? 'text-gray-700' : 'text-gray-500'}`}
+                      className={`w-full ${isExpired(item.expiration_date) ? 'text-gray-400 line-through' : isExpiringSoon(item.expiration_date) ? 'text-amber-600' : 'text-gray-500'}`}
                     />
                   </td>
                   {/* Lot # */}
