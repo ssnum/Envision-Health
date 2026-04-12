@@ -1,0 +1,28 @@
+--- src/index.ts
++++ src/index.ts
+@@ -375,6 +375,25 @@
+   return c.json({ message: 'Attendance updated' })
+ })
+ 
++app.get('/api/protected/vms/me', async (c) => {
++  const user = c.get('user') as any;
++  const [hours, shifts] = await Promise.all([
++    c.env.DB.prepare("SELECT SUM(hours_logged) as total FROM EventVolunteers WHERE user_id = ? AND status = 'Confirmed'").bind(user.id).first('total'),
++    c.env.DB.prepare(`
++      SELECT ev.status, e.title, e.date, e.location 
++      FROM EventVolunteers ev 
++      JOIN Events e ON ev.event_id = e.id 
++      WHERE ev.user_id = ? 
++      ORDER BY e.date ASC
++    `).bind(user.id).all()
++  ]);
++  
++  return c.json({
++    total_hours: hours || 0,
++    shifts: shifts.results
++  });
++})
++
+ app.post('/api/protected/vms/events/:id/register', async (c) => {
+   const eventId = c.req.param('id')
+   const user = c.get('user') as any

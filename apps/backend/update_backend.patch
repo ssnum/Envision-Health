@@ -1,0 +1,55 @@
+--- src/index.ts
++++ src/index.ts
+@@ -325,6 +325,48 @@
+   return c.json(results)
+ })
+ 
++app.get('/api/protected/vms/stats', async (c) => {
++  const [totalVolunteers, activeEvents, stats] = await Promise.all([
++    c.env.DB.prepare("SELECT COUNT(*) as count FROM Users WHERE role = 'Volunteer'").first('count'),
++    c.env.DB.prepare("SELECT COUNT(*) as count FROM Events WHERE date >= date('now')").first('count'),
++    c.env.DB.prepare(`
++      SELECT 
++        COUNT(*) as total_registrations,
++        SUM(CASE WHEN status = 'Confirmed' THEN 1 ELSE 0 END) as total_shows,
++        SUM(CASE WHEN status = 'No-Show' THEN 1 ELSE 0 END) as total_no_shows
++      FROM EventVolunteers
++    `).first()
++  ])
++  
++  const s: any = stats || { total_registrations: 0, total_shows: 0, total_no_shows: 0 };
++  const completionRate = s.total_registrations > 0 ? (s.total_shows / s.total_registrations) * 100 : 0;
++  const noShowRate = s.total_registrations > 0 ? (s.total_no_shows / s.total_registrations) * 100 : 0;
++
++  return c.json({
++    total_volunteers: totalVolunteers,
++    active_events: activeEvents,
++    total_participants: s.total_registrations,
++    completion_rate: Math.round(completionRate),
++    no_show_rate: Math.round(noShowRate)
++  })
++})
++
++app.get('/api/protected/vms/events/:id/participants', async (c) => {
++  const eventId = c.req.param('id')
++  const { results } = await c.env.DB.prepare(`
++    SELECT ev.id as registration_id, ev.user_id, u.email, ev.status, ev.hours_logged
++    FROM EventVolunteers ev
++    JOIN Users u ON ev.user_id = u.id
++    WHERE ev.event_id = ?
++  `).bind(eventId).all()
++  return c.json(results)
++})
++
++app.put('/api/protected/vms/events/:id/attendance/:userId', async (c) => {
++  const { id, userId } = c.req.param()
++  const { status } = await c.req.json() // 'Confirmed' or 'No-Show'
++  await c.env.DB.prepare(
++    "UPDATE EventVolunteers SET status = ? WHERE event_id = ? AND user_id = ?"
++  ).bind(status, id, userId).run()
++  return c.json({ message: 'Attendance updated' })
++})
++
+ app.post('/api/protected/vms/events/:id/register', async (c) => {
+   const eventId = c.req.param('id')
+   const user = c.get('user') as any

@@ -1,0 +1,12 @@
+name = "envision-health-backend"
+main = "src/index.ts"
+compatibility_date = "2024-03-20"
+
+[ai]
+binding = "AI"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "envision_health_db"
+database_id = "fda3b4c3-cde8-4ec9-8cf9-c61d4c5165ee"
+

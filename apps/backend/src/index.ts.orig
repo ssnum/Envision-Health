@@ -1,0 +1,425 @@
+import { Hono } from 'hono'
+import { cors } from 'hono/cors'
+import { sign, verify } from 'hono/jwt'
+import { v4 as uuidv4 } from 'uuid'
+import bcrypt from 'bcryptjs'
+
+type Bindings = {
+  DB: D1Database
+  JWT_SECRET: string
+  AES_SECRET: string
+  AI: any
+}
+
+const app = new Hono<{ Bindings: Bindings }>()
+
+app.use('/api/*', cors())
+
+// Helper functions for AES Encryption
+async function encryptData(text: string, secretKey: string): Promise<string> {
+  const enc = new TextEncoder()
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(secretKey.padEnd(32, '0').slice(0, 32)),
+    { name: 'PBKDF2' },
+    false,
+    ['deriveBits', 'deriveKey']
+  )
+  const key = await crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt: new Uint8Array(16),
+      iterations: 100000,
+      hash: 'SHA-256'
+    },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  )
+  
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const encrypted = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    enc.encode(text)
+  )
+  
+  const ivBase64 = btoa(String.fromCharCode(...iv))
+  const encryptedBase64 = btoa(String.fromCharCode(...new Uint8Array(encrypted)))
+  return `${ivBase64}:${encryptedBase64}`
+}
+
+async function decryptData(encryptedText: string, secretKey: string): Promise<string> {
+  if (!encryptedText || !encryptedText.includes(':')) return encryptedText;
+  const parts = encryptedText.split(':')
+  const iv = new Uint8Array(atob(parts[0]).split('').map(c => c.charCodeAt(0)))
+  const encrypted = new Uint8Array(atob(parts[1]).split('').map(c => c.charCodeAt(0)))
+  
+  const enc = new TextEncoder()
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(secretKey.padEnd(32, '0').slice(0, 32)),
+    { name: 'PBKDF2' },
+    false,
+    ['deriveBits', 'deriveKey']
+  )
+  const key = await crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt: new Uint8Array(16),
+      iterations: 100000,
+      hash: 'SHA-256'
+    },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  )
+
+  const decrypted = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    encrypted
+  )
+  
+  return new TextDecoder().decode(decrypted)
+}
+
+// Auth Middleware
+app.use('/api/protected/*', async (c, next) => {
+  if (c.req.method === 'OPTIONS') {
+    return await next()
+  }
+  const authHeader = c.req.header('Authorization')
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return c.json({ error: 'Unauthorized' }, 401)
+  }
+  const token = authHeader.split(' ')[1]
+  try {
+    const payload = await verify(token, c.env.JWT_SECRET || 'my_super_secret_for_jwt_auth_12345', 'HS256')
+    c.set('user', payload)
+    await next()
+  } catch (e: any) {
+    return c.json({ error: 'Invalid Token', details: e.message, secret_exists: !!c.env.JWT_SECRET }, 401)
+  }
+})
+
+// Log Middleware
+app.use('/api/protected/*', async (c, next) => {
+  await next()
+  const user = c.get('user') as any
+  if (user && c.req.method !== 'GET') {
+    c.executionCtx.waitUntil(
+      c.env.DB.prepare('INSERT INTO AuditLogs (id, user_id, action, target_id) VALUES (?, ?, ?, ?)')
+        .bind(uuidv4(), user.id, `${c.req.method} ${c.req.path}`, null)
+        .run()
+    )
+  }
+})
+
+app.post('/api/auth/register', async (c) => {
+  const { email, password, role } = await c.req.json()
+  const id = uuidv4()
+  const passwordHash = await bcrypt.hash(password, 10)
+
+  try {
+    await c.env.DB.prepare(
+      'INSERT INTO Users (id, email, password_hash, role) VALUES (?, ?, ?, ?)'
+    ).bind(id, email, passwordHash, role).run()
+
+    return c.json({ message: 'User registered successfully', userId: id }, 201)
+  } catch (e: any) {
+    return c.json({ error: 'Email already exists' }, 400)
+  }
+})
+
+app.post('/api/auth/login', async (c) => {
+  const { email, password } = await c.req.json()
+
+  const user: any = await c.env.DB.prepare('SELECT * FROM Users WHERE email = ?')
+    .bind(email).first()
+
+  if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+    return c.json({ error: 'Invalid credentials' }, 401)
+  }
+
+  const payload = { id: user.id, role: user.role, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 }
+  const token = await sign(payload, c.env.JWT_SECRET || 'my_super_secret_for_jwt_auth_12345')
+
+  return c.json({ token, user: { id: user.id, email: user.email, role: user.role } })
+})
+
+// AI Flier Generator endpoint
+app.post('/api/protected/vms/fliers/generate', async (c) => {
+  const { eventDetails, tone } = await c.req.json()
+  const systemPrompt = "You are an expert marketing copywriter for a healthcare clinic. Create a highly engaging, professional flier copy to recruit volunteers for the following event. Include a catchy headline, 3 bullet points of why they should join, and a strong call to action."
+  
+  try {
+    const response = await c.env.AI.run('@cf/meta/llama-3-8b-instruct', {
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `Tone: ${tone}. Event details: ${eventDetails}` }
+      ]
+    })
+    return c.json({ flierCopy: response.response })
+  } catch (error: any) {
+    return c.json({ error: error.message || 'AI generation failed' }, 500)
+  }
+})
+
+// Patient Portal Endpoints
+app.get('/api/protected/patient/me', async (c) => {
+  const user = c.get('user') as any
+  if (user.role !== 'Patient') return c.json({ error: 'Unauthorized. Not a patient.' }, 403)
+
+  const patient: any = await c.env.DB.prepare('SELECT * FROM Patients WHERE user_id = ?').bind(user.id).first()
+  if (!patient) return c.json({ error: 'Patient record not found' }, 404)
+
+  const decryptedHistory = patient.encrypted_medical_history ? await decryptData(patient.encrypted_medical_history, c.env.AES_SECRET) : null
+  
+  // Try to parse the history if it's stored as JSON (Medically Accurate Portal structure)
+  let medicalData = { history: decryptedHistory, vitals: null, medications: null, allergies: null }
+  try {
+    const parsed = JSON.parse(decryptedHistory || '{}')
+    if (parsed.history || parsed.vitals) {
+      medicalData = parsed;
+    }
+  } catch(e) {
+    // Legacy plain text
+  }
+
+  return c.json({ ...patient, medicalData })
+})
+
+// Update patients POST to handle advanced medical data and linking
+app.post('/api/protected/patients', async (c) => {
+  const { firstName, lastName, dob, email, phone, address, medicalData } = await c.req.json()
+  const id = uuidv4()
+  
+  // See if user exists to link
+  let linkedUserId = null
+  if (email) {
+    const user: any = await c.env.DB.prepare('SELECT id FROM Users WHERE email = ?').bind(email).first()
+    if (user) linkedUserId = user.id
+  }
+
+  const encryptedHistory = await encryptData(JSON.stringify(medicalData), c.env.AES_SECRET)
+
+  await c.env.DB.prepare(
+    'INSERT INTO Patients (id, first_name, last_name, dob, encrypted_medical_history, user_id, phone, address) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).bind(id, firstName, lastName, dob, encryptedHistory, linkedUserId, phone || null, address || null).run()
+
+  return c.json({ message: 'Patient added successfully', id })
+})
+
+app.get('/api/protected/patients', async (c) => {
+  const { results } = await c.env.DB.prepare('SELECT * FROM Patients ORDER BY created_at DESC').all()
+  
+  // Decrypt data for the frontend
+  const decryptedResults = await Promise.all(results.map(async (patient: any) => {
+    return {
+      ...patient,
+      medical_history: patient.encrypted_medical_history ? await decryptData(patient.encrypted_medical_history, c.env.AES_SECRET) : null
+    }
+  }))
+
+  return c.json(decryptedResults)
+})
+
+// Grants & Scraper AI Matcher
+app.post('/api/protected/grants/seed', async (c) => {
+  // Simulates a scraper running on a cron and injecting real-world grants
+  const grants = [
+    { title: 'HRSA Community Health Center Grant', agency: 'Dept of Health', requirements_text: 'Provides funding for community-based health care organizations that provide primary care in underserved areas. Focuses on prenatal, pediatric, and general medicine.', amount: '$500,000' },
+    { title: 'Rural Health Care Services Outreach Program', agency: 'HRSA', requirements_text: 'Focuses on expanding healthcare delivery in rural communities. Requires proof of rural demographic service and volunteer integration.', amount: '$200,000' },
+    { title: 'Community Mobile Ultrasound Initiative', agency: 'Private Foundation', requirements_text: 'Specifically funds mobile clinics and portable diagnostic equipment for low-income areas.', amount: '$50,000' },
+    { title: 'Mental Health Awareness Grant', agency: 'SAMHSA', requirements_text: 'Funding for establishing mental health screening and counseling services within existing primary care clinics.', amount: '$150,000' },
+    { title: 'Volunteer Medical Professionals Fund', agency: 'Medical Reserve Corps', requirements_text: 'Grants to cover operational costs for clinics that rely heavily on volunteer doctors, nurses, and staff.', amount: '$25,000' }
+  ]
+  
+  const stmt = c.env.DB.prepare('INSERT INTO Grants (id, title, agency, requirements_text, url) VALUES (?, ?, ?, ?, ?)')
+  const batch = grants.map(g => stmt.bind(uuidv4(), g.title, g.agency, g.requirements_text, g.amount))
+  
+  await c.env.DB.batch(batch)
+  return c.json({ message: 'Grant database seeded successfully' })
+})
+
+app.get('/api/protected/grants', async (c) => {
+  const { results } = await c.env.DB.prepare('SELECT * FROM Grants').all()
+  return c.json(results)
+})
+
+app.post('/api/protected/grants/match', async (c) => {
+  const { metrics } = await c.req.json()
+  const { results: grants } = await c.env.DB.prepare('SELECT title, agency, requirements_text, url as amount FROM Grants').all()
+  
+  const grantsContext = JSON.stringify(grants)
+  const systemPrompt = `You are an expert AI grant matching assistant. Analyze the clinic metrics provided and match them against the following available grants:\n\n${grantsContext}\n\nReturn ONLY a JSON array of the top 3 best matching grants with the structure: [{"title": "grant title", "agency": "agency name", "match_score": 95, "reason": "brief explanation why it matches"}]. Do NOT include markdown formatting like \`\`\`json.`
+  
+  try {
+    const response = await c.env.AI.run('@cf/meta/llama-3-8b-instruct', {
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `Clinic metrics: ${metrics}` }
+      ]
+    })
+    
+    // Parse the raw JSON string out of Llama's response
+    let jsonMatch = response.response
+    try {
+      jsonMatch = jsonMatch.replace(/```json/g, '').replace(/```/g, '').trim()
+      const parsedMatches = JSON.parse(jsonMatch)
+      return c.json({ matches: parsedMatches })
+    } catch(e) {
+      // Fallback if AI didn't format perfectly
+      return c.json({ matches: [{ title: "AI format error", reason: response.response, match_score: 0 }]})
+    }
+  } catch (error: any) {
+    return c.json({ error: error.message || 'AI generation failed' }, 500)
+  }
+})
+
+// AI Grant Assistant endpoint
+app.post('/api/protected/grants/generate', async (c) => {
+  const { metrics, prompt } = await c.req.json()
+  const systemPrompt = "You are an expert grant writer and fundraiser for a healthcare clinic. Use the following metrics to write a compelling proposal: " + JSON.stringify(metrics)
+  const userPrompt = prompt || "Write a grant proposal executive summary."
+
+  try {
+    const response = await c.env.AI.run('@cf/meta/llama-3-8b-instruct', {
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ]
+    })
+    return c.json({ proposal: response.response })
+  } catch (error: any) {
+    return c.json({ error: error.message || 'AI generation failed' }, 500)
+  }
+})
+
+// Full VMS / CRM Endpoints
+app.get('/api/protected/vms/events', async (c) => {
+  const { results } = await c.env.DB.prepare('SELECT * FROM Events ORDER BY date ASC').all()
+  return c.json(results)
+})
+
+app.post('/api/protected/vms/events', async (c) => {
+  const { title, description, date, location, requiredVolunteers } = await c.req.json()
+  const id = uuidv4()
+  await c.env.DB.prepare(
+    'INSERT INTO Events (id, title, description, date, location, required_volunteers) VALUES (?, ?, ?, ?, ?, ?)'
+  ).bind(id, title, description, date, location, requiredVolunteers).run()
+  return c.json({ message: 'Event created', id })
+})
+
+app.get('/api/protected/vms/volunteers', async (c) => {
+  const { results } = await c.env.DB.prepare(`
+    SELECT u.id, u.email, u.role, 
+           COALESCE(SUM(ev.hours_logged), 0) as total_hours 
+    FROM Users u 
+    LEFT JOIN EventVolunteers ev ON u.id = ev.user_id AND ev.status = 'Confirmed'
+    WHERE u.role = 'Volunteer'
+    GROUP BY u.id
+  `).all()
+  return c.json(results)
+})
+
+app.get('/api/protected/vms/stats', async (c) => {
+  const [totalVolunteers, activeEvents, stats] = await Promise.all([
+    c.env.DB.prepare("SELECT COUNT(*) as count FROM Users WHERE role = 'Volunteer'").first('count'),
+    c.env.DB.prepare("SELECT COUNT(*) as count FROM Events WHERE date >= date('now')").first('count'),
+    c.env.DB.prepare(`
+      SELECT 
+        COUNT(*) as total_registrations,
+        SUM(CASE WHEN status = 'Confirmed' THEN 1 ELSE 0 END) as total_shows,
+        SUM(CASE WHEN status = 'No-Show' THEN 1 ELSE 0 END) as total_no_shows
+      FROM EventVolunteers
+    `).first()
+  ])
+  
+  const s: any = stats || { total_registrations: 0, total_shows: 0, total_no_shows: 0 };
+  const completionRate = s.total_registrations > 0 ? (s.total_shows / s.total_registrations) * 100 : 0;
+  const noShowRate = s.total_registrations > 0 ? (s.total_no_shows / s.total_registrations) * 100 : 0;
+
+  return c.json({
+    total_volunteers: totalVolunteers,
+    active_events: activeEvents,
+    total_participants: s.total_registrations,
+    completion_rate: Math.round(completionRate),
+    no_show_rate: Math.round(noShowRate)
+  })
+})
+
+app.get('/api/protected/vms/events/:id/participants', async (c) => {
+  const eventId = c.req.param('id')
+  const { results } = await c.env.DB.prepare(`
+    SELECT ev.id as registration_id, ev.user_id, u.email, ev.status, ev.hours_logged
+    FROM EventVolunteers ev
+    JOIN Users u ON ev.user_id = u.id
+    WHERE ev.event_id = ?
+  `).bind(eventId).all()
+  return c.json(results)
+})
+
+app.put('/api/protected/vms/events/:id/attendance/:userId', async (c) => {
+  const { id, userId } = c.req.param()
+  const { status, hours } = await c.req.json()
+  
+  await c.env.DB.prepare(
+    "UPDATE EventVolunteers SET status = ?, hours_logged = COALESCE(?, hours_logged) WHERE event_id = ? AND user_id = ?"
+  ).bind(status, hours || null, id, userId).run()
+  return c.json({ message: 'Attendance updated' })
+})
+
+app.post('/api/protected/vms/events/:id/register', async (c) => {
+  const eventId = c.req.param('id')
+  const user = c.get('user') as any
+  const id = uuidv4()
+  
+  await c.env.DB.prepare(
+    'INSERT INTO EventVolunteers (id, event_id, user_id, status) VALUES (?, ?, ?, ?)'
+  ).bind(id, eventId, user.id, 'Pending').run()
+  
+  return c.json({ message: 'Registered for event' })
+})
+
+app.get('/api/protected/vms/hours/pending', async (c) => {
+  const { results } = await c.env.DB.prepare(`
+    SELECT ev.id as registration_id, ev.hours_logged, ev.status, e.title as event_title, u.email as volunteer_email
+    FROM EventVolunteers ev
+    JOIN Events e ON ev.event_id = e.id
+    JOIN Users u ON ev.user_id = u.id
+    WHERE ev.status = 'Pending' AND ev.hours_logged > 0
+  `).all()
+  return c.json(results)
+})
+
+app.put('/api/protected/vms/hours/confirm/:id', async (c) => {
+  const registrationId = c.req.param('id')
+  await c.env.DB.prepare(
+    "UPDATE EventVolunteers SET status = 'Confirmed' WHERE id = ?"
+  ).bind(registrationId).run()
+  return c.json({ message: 'Hours confirmed' })
+})
+
+// Legacy Shifts endpoint
+app.get('/api/protected/shifts', async (c) => {
+  const { results } = await c.env.DB.prepare('SELECT * FROM Shifts').all()
+  return c.json(results)
+})
+app.post('/api/protected/shifts', async (c) => {
+  const { startTime, endTime, roleAssigned } = await c.req.json()
+  const user = c.get('user') as any
+  const id = uuidv4()
+  
+  await c.env.DB.prepare(
+    'INSERT INTO Shifts (id, user_id, start_time, end_time, role_assigned, status) VALUES (?, ?, ?, ?, ?, ?)'
+  ).bind(id, user.id, startTime, endTime, roleAssigned, 'Scheduled').run()
+  
+  return c.json({ message: 'Shift created successfully' })
+})
+
+
+export default app

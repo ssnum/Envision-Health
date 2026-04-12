@@ -1,0 +1,9 @@
+1. make front end look not vibe coded, Some buttons are mocks only(main page)
+2. people who sign up for volunteer accs can join a clinic and then they show up as part of the clinic for admins in the admin acc
+3. for patient directory - under lab results be able to link google sheets (look into later with kahlei)
+4. make medication inventory more robust - ask kahlei 
+
+**Overall: Focus on AI tools**
+- find/connect with local volunteers (new tab)
+- AI generate a visual flyer and search for people to email 
+- search for donation programs and explain how to reach them and have a button to generate things needed for that (lookinto more research)

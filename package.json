@@ -1,0 +1,12 @@
+{
+  "name": "envision-health-hub",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:backend": "npm run dev --workspace=apps/backend",
+    "dev:frontend": "npm run dev --workspace=apps/frontend",
+    "deploy:backend": "npm run deploy --workspace=apps/backend"
+  }
+}
