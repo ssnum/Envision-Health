@@ -211,8 +211,10 @@ const Layout = ({ children, logout, role }: { children: React.ReactNode, logout:
       <header className="bg-white border-b border-gray-200 sticky top-0 z-30">
         <div className="max-w-screen-2xl mx-auto px-6 h-13 flex items-center gap-5" style={{height: '52px'}}>
           <Link to="/" className="flex items-center gap-2 flex-shrink-0 mr-2">
-            <HeartPulse className="h-4 w-4 text-blue-600" />
-            <span className="text-sm font-semibold text-gray-900 tracking-tight">Envision Hub</span>
+            <div className="h-6 w-6 rounded bg-gray-900 flex items-center justify-center flex-shrink-0">
+              <span className="text-white text-xs font-bold tracking-tight">E</span>
+            </div>
+            <span className="text-sm font-semibold text-gray-900 tracking-tight">Envision</span>
           </Link>
 
           <div className="relative w-56">
@@ -1934,12 +1936,12 @@ const Inventory = ({ token, logout }: { token: string, logout: () => void }) => 
   ]
 
   const statusColors: Record<string, string> = {
-    'In Stock': 'bg-emerald-50 text-emerald-700 border-emerald-200',
-    'Low Stock': 'bg-amber-50 text-amber-700 border-amber-200',
-    'Critical': 'bg-red-50 text-red-700 border-red-200',
-    'On Order': 'bg-blue-50 text-blue-700 border-blue-200',
-    'Expired': 'bg-gray-100 text-gray-500 border-gray-200',
-    'Recalled': 'bg-purple-50 text-purple-700 border-purple-200',
+    'In Stock': 'bg-gray-50 text-gray-600 border-gray-200',
+    'Low Stock': 'bg-gray-100 text-gray-700 border-gray-300',
+    'Critical': 'bg-gray-100 text-gray-800 border-gray-400',
+    'On Order': 'bg-gray-50 text-gray-500 border-gray-200',
+    'Expired': 'bg-gray-100 text-gray-400 border-gray-200',
+    'Recalled': 'bg-gray-100 text-gray-600 border-gray-300',
     'Discontinued': 'bg-gray-50 text-gray-400 border-gray-100',
   }
 
@@ -2120,7 +2122,7 @@ const Inventory = ({ token, logout }: { token: string, logout: () => void }) => 
                       value={item.quantity}
                       type="number"
                       onChange={v => updateCell(item.id, 'quantity', v)}
-                      className={`font-mono font-semibold w-full ${item.quantity <= 0 ? 'text-red-600' : item.quantity < (item.min_quantity || 10) ? 'text-amber-600' : 'text-gray-700'}`}
+                      className={`font-mono font-semibold w-full ${item.quantity <= 0 ? 'text-gray-500' : item.quantity < (item.min_quantity || 10) ? 'text-gray-700' : 'text-gray-700'}`}
                     />
                   </td>
                   {/* Unit */}
@@ -2147,7 +2149,7 @@ const Inventory = ({ token, logout }: { token: string, logout: () => void }) => 
                       value={item.expiration_date ? item.expiration_date.split('T')[0] : ''}
                       type="date"
                       onChange={v => updateCell(item.id, 'expiration_date', v)}
-                      className={`w-full ${isExpired(item.expiration_date) ? 'text-red-600 font-medium' : isExpiringSoon(item.expiration_date) ? 'text-amber-600' : 'text-gray-600'}`}
+                      className={`w-full ${isExpired(item.expiration_date) ? 'text-gray-500 line-through' : isExpiringSoon(item.expiration_date) ? 'text-gray-700' : 'text-gray-500'}`}
                     />
                   </td>
                   {/* Lot # */}
@@ -2196,8 +2198,8 @@ const Inventory = ({ token, logout }: { token: string, logout: () => void }) => 
             <span>{filtered.length} row{filtered.length !== 1 ? 's' : ''}</span>
             {selectedRows.size > 0 && <span className="text-blue-600">{selectedRows.size} selected</span>}
             <span>Total qty: <strong className="text-gray-700">{filtered.reduce((s, i) => s + (i.quantity || 0), 0).toLocaleString()}</strong></span>
-            <span>Low/critical: <strong className="text-amber-600">{filtered.filter(i => ['Low Stock', 'Critical'].includes(i.status)).length}</strong></span>
-            <span>Expiring ≤90d: <strong className="text-orange-600">{filtered.filter(i => isExpiringSoon(i.expiration_date)).length}</strong></span>
+            <span>Low/critical: <strong className="text-gray-600">{filtered.filter(i => ['Low Stock', 'Critical'].includes(i.status)).length}</strong></span>
+            <span>Expiring ≤90d: <strong className="text-gray-600">{filtered.filter(i => isExpiringSoon(i.expiration_date)).length}</strong></span>
           </div>
         )}
       </div>
@@ -2453,10 +2455,10 @@ const VolunteerCRM = ({ token, logout }: { token: string, logout: () => void }) 
   const filteredVolunteers = volunteers.filter(v => v.email.toLowerCase().includes(search.toLowerCase()))
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
+    <div className="max-w-4xl mx-auto space-y-4">
 
       {/* Header */}
-      <div className="flex items-end justify-between pb-4 border-b border-gray-200">
+      <div className="flex items-end justify-between pb-3 border-b border-gray-200">
         <div>
           <h1 className="text-lg font-semibold text-gray-900">Volunteer CRM</h1>
           <p className="text-xs text-gray-400 mt-0.5">{volunteers.length} volunteers · {events.length} events</p>
@@ -2473,7 +2475,7 @@ const VolunteerCRM = ({ token, logout }: { token: string, logout: () => void }) 
         {tabs.map(t => (
           <button key={t.key}
             onClick={() => { setActiveTab(t.key); setSelectedEvent(null) }}
-            className={`px-4 py-2.5 text-sm border-b-2 transition-colors -mb-px ${activeTab === t.key ? 'border-blue-600 text-blue-600 font-medium' : 'border-transparent text-gray-500 hover:text-gray-800'}`}>
+            className={`px-4 py-2 text-sm border-b-2 transition-colors -mb-px ${activeTab === t.key ? 'border-blue-600 text-blue-600 font-medium' : 'border-transparent text-gray-500 hover:text-gray-800'}`}>
             {t.label}
           </button>
         ))}
@@ -2481,32 +2483,27 @@ const VolunteerCRM = ({ token, logout }: { token: string, logout: () => void }) 
 
       {/* ── Overview ── */}
       {activeTab === 'dashboard' && (
-        <div className="space-y-10">
+        <div className="space-y-6">
           {stats && (
             <>
               {/* Stats row */}
-              <section>
-                <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-4">At a glance</h2>
-                <div className="flex gap-px bg-gray-200 border border-gray-200 rounded-lg overflow-hidden">
-                  {[
-                    { label: 'Total volunteers', value: stats.total_volunteers },
-                    { label: 'Active events', value: stats.active_events },
-                    { label: 'Completion rate', value: stats.completion_rate + '%' },
-                    { label: 'No-show rate', value: stats.no_show_rate + '%' },
-                  ].map((s, i) => (
-                    <div key={i} className="flex-1 bg-white px-5 py-4">
-                      <p className="text-xs text-gray-400 mb-1.5">{s.label}</p>
-                      <p className="text-xl font-semibold text-gray-900">{s.value}</p>
-                    </div>
-                  ))}
-                </div>
-              </section>
-
-              <div className="border-t border-gray-100" />
+              <div className="flex gap-px bg-gray-200 border border-gray-200 rounded-lg overflow-hidden">
+                {[
+                  { label: 'Total volunteers', value: stats.total_volunteers },
+                  { label: 'Active events', value: stats.active_events },
+                  { label: 'Completion rate', value: stats.completion_rate + '%' },
+                  { label: 'No-show rate', value: stats.no_show_rate + '%' },
+                ].map((s, i) => (
+                  <div key={i} className="flex-1 bg-white px-4 py-3">
+                    <p className="text-xs text-gray-400 mb-1">{s.label}</p>
+                    <p className="text-lg font-semibold text-gray-900">{s.value}</p>
+                  </div>
+                ))}
+              </div>
 
               {/* Upcoming events */}
-              <section>
-                <div className="flex items-center justify-between mb-4">
+              <div>
+                <div className="flex items-center justify-between mb-3">
                   <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Upcoming events</h2>
                   <button onClick={() => setActiveTab('events')} className="text-xs text-blue-600 hover:underline">View all →</button>
                 </div>
@@ -2522,7 +2519,7 @@ const VolunteerCRM = ({ token, logout }: { token: string, logout: () => void }) 
                       <span className="col-span-2 text-xs font-medium text-gray-400 uppercase tracking-wider">Spots</span>
                     </div>
                     {events.slice(0, 5).map(e => (
-                      <div key={e.id} className="grid grid-cols-12 gap-4 py-3 items-center hover:bg-gray-50 transition-colors">
+                      <div key={e.id} className="grid grid-cols-12 gap-4 py-2.5 items-center hover:bg-gray-50 transition-colors">
                         <div className="col-span-4">
                           <p className="text-sm font-medium text-gray-900">{e.title}</p>
                         </div>
@@ -2543,28 +2540,26 @@ const VolunteerCRM = ({ token, logout }: { token: string, logout: () => void }) 
                     ))}
                   </div>
                 )}
-              </section>
-
-              <div className="border-t border-gray-100" />
+              </div>
 
               {/* Quick actions */}
-              <section>
-                <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-4">Quick actions</h2>
-                <div className="flex gap-3">
+              <div>
+                <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2">Quick actions</h2>
+                <div className="flex gap-2">
                   <button onClick={() => { setActiveTab('events'); setShowEventForm(true) }}
-                    className="text-xs border border-gray-200 px-4 py-2 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-1.5">
+                    className="text-xs border border-gray-200 px-3 py-1.5 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-1.5">
                     <Plus size={12} /> Create event
                   </button>
                   <button onClick={() => setActiveTab('hours')}
-                    className={`text-xs border px-4 py-2 rounded transition-colors flex items-center gap-1.5 ${pendingHours.length > 0 ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-gray-200 text-gray-700 hover:bg-gray-50'}`}>
+                    className={`text-xs border px-3 py-1.5 rounded transition-colors flex items-center gap-1.5 ${pendingHours.length > 0 ? 'border-gray-300 text-gray-700 hover:bg-gray-50' : 'border-gray-200 text-gray-700 hover:bg-gray-50'}`}>
                     <CheckCircle2 size={12} /> Review pending hours {pendingHours.length > 0 && `(${pendingHours.length})`}
                   </button>
                   <button onClick={() => setActiveTab('marketing')}
-                    className="text-xs border border-gray-200 px-4 py-2 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-1.5">
+                    className="text-xs border border-gray-200 px-3 py-1.5 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-1.5">
                     <Sparkles size={12} /> Generate flier
                   </button>
                 </div>
-              </section>
+              </div>
             </>
           )}
         </div>
