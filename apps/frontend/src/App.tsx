@@ -2853,13 +2853,14 @@ const AIWriter = ({ token, logout }: { token: string, logout: () => void }) => {
   const [result, setResult] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [isMatchMode, setIsMatchMode] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   const handleGenerate = async () => {
     setLoading(true)
+    setResult(null)
     try {
       const endpoint = isMatchMode ? '/api/protected/grants/match' : '/api/protected/grants/generate'
       const payload = isMatchMode ? { metrics } : { metrics, prompt }
-      
       const res = await fetch(API_URL + endpoint, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -2874,102 +2875,181 @@ const AIWriter = ({ token, logout }: { token: string, logout: () => void }) => {
     setLoading(false)
   }
 
+  const handleCopy = () => {
+    if (typeof result === 'string') {
+      navigator.clipboard.writeText(result)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }
+  }
+
   return (
-    <>
-      <div className="flex justify-between items-end mb-6">
+    <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
+      {/* Header row */}
+      <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">AI Grant Writer & Scraper</h1>
-          <p className="text-gray-500 mt-1">Match with live grants and auto-generate proposals using Llama-3.</p>
+          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Grant Writer</h1>
+          <p className="text-sm text-gray-400 mt-0.5">Match live grants and generate proposals with AI</p>
         </div>
-        <div className="flex bg-gray-100 p-1 rounded-lg">
-          <button onClick={() => {setIsMatchMode(false); setResult(null)}} className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${!isMatchMode ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>Proposal Writer</button>
-          <button onClick={() => {setIsMatchMode(true); setResult(null)}} className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${isMatchMode ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>Scraper & Matcher</button>
+        <div className="flex items-center border border-gray-200 rounded overflow-hidden">
+          <button
+            onClick={() => { setIsMatchMode(false); setResult(null) }}
+            className={`px-4 py-2 text-xs font-medium transition-colors ${!isMatchMode ? 'bg-gray-900 text-white' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}`}
+          >
+            Proposal Writer
+          </button>
+          <div className="w-px h-4 bg-gray-200" />
+          <button
+            onClick={() => { setIsMatchMode(true); setResult(null) }}
+            className={`px-4 py-2 text-xs font-medium transition-colors ${isMatchMode ? 'bg-gray-900 text-white' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}`}
+          >
+            Grant Matcher
+          </button>
         </div>
       </div>
-      
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 min-h-[600px]">
-        {/* Left Side - Inputs */}
-        <div className="xl:col-span-4 flex flex-col gap-6">
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex-1 flex flex-col">
-            <div className="flex items-center gap-2 mb-6">
-              <div className="bg-blue-100 p-2 rounded-lg text-blue-700">
-                {isMatchMode ? <Search size={20} /> : <FileText size={20} />}
-              </div>
-              <h2 className="text-lg font-bold text-gray-900">{isMatchMode ? 'Matching Parameters' : 'Proposal Parameters'}</h2>
-            </div>
-            
-            <div className="flex-1 flex flex-col gap-5">
-              <div className="flex-1 flex flex-col">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Clinic Context & Metrics</label>
-                <textarea 
-                  className="w-full flex-1 min-h-[150px] border border-gray-300 p-3 rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all resize-none text-sm text-gray-700 bg-gray-50/50" 
-                  value={metrics} 
-                  onChange={e => setMetrics(e.target.value)} 
-                />
-              </div>
-              {!isMatchMode && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">AI Prompt / Instruction</label>
-                  <input 
-                    type="text" 
-                    className="w-full border border-gray-300 p-3 rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm" 
-                    value={prompt} 
-                    onChange={e => setPrompt(e.target.value)} 
-                  />
-                </div>
-              )}
-            </div>
 
-            <button 
-              onClick={handleGenerate} 
-              disabled={loading} 
-              className="mt-6 w-full flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white py-3 px-4 rounded-xl font-medium hover:from-blue-700 hover:to-blue-800 transition-all shadow-md shadow-blue-500/20 disabled:opacity-70 disabled:cursor-not-allowed"
+      {/* Two-column layout — no cards, just clean columns */}
+      <div className="flex gap-10" style={{ minHeight: '70vh' }}>
+
+        {/* Left — inputs */}
+        <div className="w-80 flex-shrink-0 flex flex-col gap-6 border-r border-gray-100 pr-10">
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
+              {isMatchMode ? 'Clinic Context' : 'Clinic Context & Metrics'}
+            </p>
+            <textarea
+              className="w-full border-0 border-b border-gray-200 pb-3 focus:outline-none focus:border-gray-400 transition-colors resize-none text-sm text-gray-700 leading-relaxed bg-transparent"
+              style={{ minHeight: '180px' }}
+              value={metrics}
+              onChange={e => setMetrics(e.target.value)}
+              placeholder="Describe your clinic's mission, patient volume, key metrics, and funding needs..."
+            />
+          </div>
+
+          {!isMatchMode && (
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Instruction</p>
+              <input
+                type="text"
+                className="w-full border-0 border-b border-gray-200 pb-2 focus:outline-none focus:border-gray-400 transition-colors text-sm text-gray-700 bg-transparent"
+                value={prompt}
+                onChange={e => setPrompt(e.target.value)}
+                placeholder="e.g. Write an executive summary..."
+              />
+            </div>
+          )}
+
+          {/* Quick prompts */}
+          {!isMatchMode && (
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2">Quick prompts</p>
+              <div className="flex flex-col gap-1">
+                {[
+                  'Write an executive summary for a federal grant',
+                  'Draft a needs statement for HRSA funding',
+                  'Write project goals and objectives',
+                  'Create an evaluation plan section',
+                ].map(p => (
+                  <button
+                    key={p}
+                    onClick={() => setPrompt(p)}
+                    className={`text-left text-xs py-1.5 text-gray-500 hover:text-gray-900 transition-colors border-l-2 pl-2.5 ${prompt === p ? 'border-blue-500 text-gray-900' : 'border-transparent'}`}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="mt-auto pt-4">
+            <button
+              onClick={handleGenerate}
+              disabled={loading}
+              className="w-full flex items-center justify-center gap-2 bg-gray-900 text-white py-2.5 px-4 text-sm font-medium hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? (
-                <><Activity className="animate-spin" size={18} /> {isMatchMode ? 'Matching...' : 'Generating...'}</>
-              ) : (
-                <>{isMatchMode ? <Sparkles size={18} /> : <FileText size={18} />} {isMatchMode ? 'Find Best Grants' : 'Generate Proposal'}</>
-              )}
+              {loading
+                ? <><Activity className="animate-spin" size={14} /> {isMatchMode ? 'Searching grants...' : 'Generating...'}</>
+                : isMatchMode ? <><Search size={14} /> Find Matching Grants</> : <><FileText size={14} /> Generate Proposal</>
+              }
             </button>
+            {loading && (
+              <p className="text-xs text-gray-400 text-center mt-2">This may take 10–20 seconds</p>
+            )}
           </div>
         </div>
 
-        {/* Right Side - Output */}
-        <div className="xl:col-span-8 bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
-            <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wider">{isMatchMode ? 'Top Grant Matches' : 'Generated Output'}</h2>
-            {result && typeof result === 'string' && <button className="text-sm text-blue-600 hover:text-blue-800 font-medium">Copy Output</button>}
+        {/* Right — output */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* Output header */}
+          <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">
+              {isMatchMode ? 'Grant Matches' : 'Output'}
+            </p>
+            {result && typeof result === 'string' && (
+              <button
+                onClick={handleCopy}
+                className="text-xs text-gray-400 hover:text-gray-700 transition-colors flex items-center gap-1"
+              >
+                {copied ? <><CheckCircle2 size={12} className="text-emerald-500" /> Copied</> : 'Copy text'}
+              </button>
+            )}
           </div>
-          <div className="flex-1 p-6 overflow-y-auto bg-[#fafafa]">
-            {result ? (
+
+          {/* Output area */}
+          <div className="flex-1 overflow-y-auto">
+            {loading ? (
+              <div className="flex flex-col gap-3 pt-4">
+                {[...Array(6)].map((_, i) => (
+                  <div key={i} className="h-3 bg-gray-100 rounded animate-pulse" style={{ width: `${85 - i * 7}%`, animationDelay: `${i * 80}ms` }} />
+                ))}
+                <div className="h-3 bg-gray-100 rounded animate-pulse w-3/4 mt-2" />
+                <div className="h-3 bg-gray-100 rounded animate-pulse w-1/2" />
+              </div>
+            ) : result ? (
               isMatchMode && Array.isArray(result) ? (
-                <div className="space-y-4">
+                // Grant matches — row format, no cards
+                <div className="divide-y divide-gray-100">
                   {result.map((match: any, idx: number) => (
-                    <div key={idx} className="bg-white p-5 rounded-xl border border-blue-100 shadow-sm flex flex-col gap-2">
-                      <div className="flex justify-between items-start">
-                        <h3 className="font-bold text-gray-900 text-lg">{match.title || 'Unknown Grant'}</h3>
-                        <span className="bg-blue-100 text-blue-800 font-bold px-3 py-1 rounded-full text-sm">{match.match_score || 0}% Match</span>
+                    <div key={idx} className="py-5 flex items-start gap-5 hover:bg-gray-50/50 transition-colors -mx-2 px-2">
+                      {/* Score */}
+                      <div className="flex-shrink-0 w-12 text-center pt-0.5">
+                        <span className={`text-lg font-bold tabular-nums ${(match.match_score || 0) >= 80 ? 'text-emerald-600' : (match.match_score || 0) >= 60 ? 'text-amber-500' : 'text-gray-400'}`}>
+                          {match.match_score || 0}
+                        </span>
+                        <p className="text-xs text-gray-300 leading-none">%</p>
                       </div>
-                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{match.agency || 'Unknown Agency'}</p>
-                      <p className="text-sm text-gray-700 mt-2 bg-gray-50 p-3 rounded-lg border border-gray-100">{match.reason}</p>
+                      {/* Thin divider */}
+                      <div className="w-px self-stretch bg-gray-100 flex-shrink-0" />
+                      {/* Content */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-4 mb-1">
+                          <h3 className="text-sm font-semibold text-gray-900 leading-snug">{match.title || 'Unknown Grant'}</h3>
+                        </div>
+                        <p className="text-xs text-gray-400 mb-2 uppercase tracking-wide">{match.agency || 'Unknown Agency'}</p>
+                        <p className="text-sm text-gray-600 leading-relaxed">{match.reason}</p>
+                      </div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="prose prose-blue max-w-none text-gray-800 leading-relaxed whitespace-pre-wrap font-serif">
+                // Proposal text — clean reading format
+                <div className="text-sm text-gray-700 leading-8 whitespace-pre-wrap max-w-2xl" style={{ fontFamily: 'Georgia, serif', letterSpacing: '0.01em' }}>
                   {result}
                 </div>
               )
             ) : (
-              <div className="h-full flex flex-col items-center justify-center text-gray-400 gap-4">
-                {isMatchMode ? <Search size={48} className="text-gray-300 opacity-50" /> : <FileText size={48} className="text-gray-300 opacity-50" />}
-                <p>Fill out the parameters on the left and click {isMatchMode ? 'Find Best Grants' : 'Generate'}.</p>
+              <div className="flex flex-col items-center justify-center h-full text-center" style={{ minHeight: '300px' }}>
+                <div className="w-8 h-px bg-gray-200 mx-auto mb-4" />
+                <p className="text-sm text-gray-300">
+                  {isMatchMode ? 'Fill in your clinic context and search for grants' : 'Fill in your context and choose a prompt to generate'}
+                </p>
               </div>
             )}
           </div>
         </div>
       </div>
-    </>
+    </div>
   )
 }
 
