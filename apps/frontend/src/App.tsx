@@ -198,7 +198,7 @@ const Layout = ({ children, logout, role }: { children: React.ReactNode, logout:
   const clinicItems = [
     { to: '/patients', label: 'Patient EHR', icon: Users, roles: ['Admin', 'Doctor'] },
     { to: '/volunteers', label: 'Volunteer CRM', icon: HeartPulse, roles: ['Admin'] },
-    { to: '/inventory', label: 'Inventory', icon: Package, roles: ['Admin'] },
+    { to: '/inventory', label: 'Inventory', icon: Package, roles: ['Admin', 'Doctor'] },
     { to: '/appointments', label: 'My Appointments', icon: Calendar, roles: ['Patient'] },
     { to: '/opportunities', label: 'Opportunities', icon: Calendar, roles: ['Volunteer'] },
   ]
@@ -1534,114 +1534,543 @@ const Patients = ({ token, logout }: { token: string, logout: () => void }) => {
 }
 
 
+// Spreadsheet cell editor component
+const SheetCell = ({ value, type = 'text', options, onChange, className = '', readOnly = false }: {
+  value: any, type?: string, options?: string[], onChange?: (v: any) => void,
+  className?: string, readOnly?: boolean
+}) => {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value)
+  const inputRef = useRef<any>(null)
+
+  useEffect(() => { setDraft(value) }, [value])
+  useEffect(() => { if (editing && inputRef.current) inputRef.current.focus() }, [editing])
+
+  const commit = () => {
+    setEditing(false)
+    if (draft !== value && onChange) onChange(type === 'number' ? (isNaN(parseInt(draft)) ? 0 : parseInt(draft)) : draft)
+  }
+
+  if (readOnly) return (
+    <div className={`px-2 py-1.5 text-sm text-gray-700 ${className}`}>{value || '—'}</div>
+  )
+
+  if (!editing) return (
+    <div
+      onClick={() => setEditing(true)}
+      className={`px-2 py-1.5 text-sm cursor-text hover:bg-blue-50 hover:ring-1 hover:ring-blue-300 rounded transition-all min-h-[28px] ${className}`}
+    >
+      {value || <span className="text-gray-300 italic text-xs">click to edit</span>}
+    </div>
+  )
+
+  if (options) return (
+    <select
+      ref={inputRef}
+      value={draft}
+      onChange={e => setDraft(e.target.value)}
+      onBlur={commit}
+      className="w-full px-2 py-1 text-sm border-0 outline-none ring-1 ring-blue-400 rounded bg-white"
+    >
+      {options.map(o => <option key={o}>{o}</option>)}
+    </select>
+  )
+
+  return (
+    <input
+      ref={inputRef}
+      type={type}
+      value={draft}
+      onChange={e => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false) } }}
+      className="w-full px-2 py-1 text-sm border-0 outline-none ring-1 ring-blue-400 rounded bg-white"
+    />
+  )
+}
+
+const INVENTORY_CATEGORIES = ['Medication', 'Vaccine', 'PPE', 'Wound Care', 'Diagnostic', 'IV/Infusion', 'Surgical Supply', 'Equipment', 'Lab Supply', 'Office/Admin']
+const STORAGE_LOCATIONS = ['Pharmacy Cabinet A', 'Pharmacy Cabinet B', 'Exam Room 1', 'Exam Room 2', 'Exam Room 3', 'Supply Closet', 'Refrigerator 1', 'Refrigerator 2', 'Freezer', 'Lab Storage', 'Nurses Station', 'Reception']
+const UNITS = ['units', 'boxes', 'bottles', 'vials', 'ampules', 'bags', 'rolls', 'packs', 'pairs', 'each', 'liters', 'mL']
+const SUPPLIERS = ['McKesson', 'Cardinal Health', 'Medline', 'Henry Schein', 'Owens & Minor', 'Patterson Companies', 'PSS World Medical', 'Other']
+const STATUS_OPTIONS = ['In Stock', 'Low Stock', 'Critical', 'On Order', 'Expired', 'Recalled', 'Discontinued']
+
+const defaultNewRow = () => ({
+  id: `local-${Date.now()}`,
+  item_name: '',
+  category: 'Medication',
+  quantity: 0,
+  unit: 'units',
+  min_quantity: 10,
+  location: 'Pharmacy Cabinet A',
+  expiration_date: '',
+  lot_number: '',
+  supplier: 'McKesson',
+  unit_cost: '',
+  ndc_code: '',
+  notes: '',
+  status: 'In Stock',
+  isNew: true,
+  isDirty: false,
+})
+
 const Inventory = ({ token, logout }: { token: string, logout: () => void }) => {
   const [items, setItems] = useState<any[]>([])
-  const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ itemName: '', category: 'Medication', quantity: 0, expirationDate: '' })
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [filterCategory, setFilterCategory] = useState('All')
+  const [filterStatus, setFilterStatus] = useState('All')
+  const [sortCol, setSortCol] = useState('item_name')
+  const [sortDir, setSortDir] = useState<'asc'|'desc'>('asc')
+  const [savingIds, setSavingIds] = useState<Set<string>>(new Set())
+  const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set())
+  const [activeTab, setActiveTab] = useState<'all'|'medications'|'supplies'|'equipment'>('all')
+  const [showConnectModal, setShowConnectModal] = useState(false)
+  const [sheetUrl, setSheetUrl] = useState('')
+  const [sheetConnected, setSheetConnected] = useState(false)
 
   const fetchInventory = async () => {
+    setLoading(true)
     try {
       const res = await fetch(API_URL + '/api/protected/inventory', { headers: { 'Authorization': `Bearer ${token}` } })
       if (res.status === 401) return logout()
-      setItems(await res.json())
+      const data = await res.json()
+      // Enrich with default fields that may not exist in backend
+      setItems(data.map((item: any) => ({
+        unit: 'units', min_quantity: 10, location: 'Pharmacy Cabinet A',
+        lot_number: '', supplier: 'McKesson', unit_cost: '', ndc_code: '', notes: '',
+        status: item.quantity < 5 ? 'Critical' : item.quantity < 10 ? 'Low Stock' : 'In Stock',
+        ...item, isDirty: false, isNew: false,
+      })))
     } catch(e) { console.error(e) }
+    setLoading(false)
   }
 
   useEffect(() => { fetchInventory() }, [])
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    await fetch(API_URL + '/api/protected/inventory', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(form)
-    })
-    setShowForm(false)
-    setForm({ itemName: '', category: 'Medication', quantity: 0, expirationDate: '' })
-    fetchInventory()
+  const addRow = () => {
+    setItems(prev => [...prev, defaultNewRow()])
   }
 
-  const handleUpdateQuantity = async (id: string, newQuantity: number) => {
-    if (newQuantity < 0) return;
-    await fetch(API_URL + `/api/protected/inventory/${id}`, {
-      method: 'PUT',
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ quantity: newQuantity })
+  const updateCell = async (id: string, field: string, value: any) => {
+    setItems(prev => prev.map(item => {
+      if (item.id !== id) return item
+      const updated = { ...item, [field]: value, isDirty: true }
+      // Auto-compute status from quantity
+      if (field === 'quantity' || field === 'min_quantity') {
+        const qty = field === 'quantity' ? value : item.quantity
+        const min = field === 'min_quantity' ? value : item.min_quantity
+        updated.status = qty <= 0 ? 'Critical' : qty < min * 0.5 ? 'Critical' : qty < min ? 'Low Stock' : 'In Stock'
+      }
+      return updated
+    }))
+    // Debounced auto-save for existing rows
+    const item = items.find(i => i.id === id)
+    if (item && !item.isNew) {
+      setSavingIds(prev => new Set(prev).add(id))
+      try {
+        await fetch(API_URL + `/api/protected/inventory/${id}`, {
+          method: 'PUT',
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ [field === 'item_name' ? 'itemName' : field]: value, quantity: field === 'quantity' ? value : item.quantity })
+        })
+        setItems(prev => prev.map(i => i.id === id ? { ...i, isDirty: false } : i))
+      } catch(e) { console.error(e) }
+      setSavingIds(prev => { const s = new Set(prev); s.delete(id); return s })
+    }
+  }
+
+  const saveNewRow = async (id: string) => {
+    const item = items.find(i => i.id === id)
+    if (!item || !item.item_name.trim()) return
+    setSavingIds(prev => new Set(prev).add(id))
+    try {
+      const res = await fetch(API_URL + '/api/protected/inventory', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemName: item.item_name, category: item.category, quantity: item.quantity, expirationDate: item.expiration_date })
+      })
+      if (res.ok) {
+        fetchInventory()
+      }
+    } catch(e) { console.error(e) }
+    setSavingIds(prev => { const s = new Set(prev); s.delete(id); return s })
+  }
+
+  const deleteSelected = () => {
+    setItems(prev => prev.filter(item => !selectedRows.has(item.id)))
+    setSelectedRows(new Set())
+  }
+
+  const handleSort = (col: string) => {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortCol(col); setSortDir('asc') }
+  }
+
+  const tabFilter = (item: any) => {
+    if (activeTab === 'medications') return ['Medication', 'Vaccine'].includes(item.category)
+    if (activeTab === 'supplies') return ['PPE', 'Wound Care', 'IV/Infusion', 'Surgical Supply', 'Lab Supply', 'Diagnostic'].includes(item.category)
+    if (activeTab === 'equipment') return item.category === 'Equipment'
+    return true
+  }
+
+  const filtered = items
+    .filter(tabFilter)
+    .filter(i => filterCategory === 'All' || i.category === filterCategory)
+    .filter(i => filterStatus === 'All' || i.status === filterStatus)
+    .filter(i => !search || i.item_name?.toLowerCase().includes(search.toLowerCase()) || i.ndc_code?.toLowerCase().includes(search.toLowerCase()) || i.lot_number?.toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => {
+      let av = a[sortCol] ?? '', bv = b[sortCol] ?? ''
+      if (typeof av === 'number') return sortDir === 'asc' ? av - bv : bv - av
+      return sortDir === 'asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av))
     })
-    fetchInventory()
+
+  const lowStockCount = items.filter(i => i.status === 'Low Stock' || i.status === 'Critical').length
+  const expiringCount = items.filter(i => {
+    if (!i.expiration_date) return false
+    const exp = new Date(i.expiration_date)
+    const diff = (exp.getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+    return diff >= 0 && diff <= 90
+  }).length
+
+  const SortIcon = ({ col }: { col: string }) => (
+    <span className="ml-1 text-gray-300">
+      {sortCol === col ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+    </span>
+  )
+
+  const columns = [
+    { key: 'item_name', label: 'Item Name', width: 'w-48', type: 'text' },
+    { key: 'ndc_code', label: 'NDC / Code', width: 'w-32', type: 'text' },
+    { key: 'category', label: 'Category', width: 'w-36', type: 'select', options: INVENTORY_CATEGORIES },
+    { key: 'quantity', label: 'Qty', width: 'w-20', type: 'number' },
+    { key: 'unit', label: 'Unit', width: 'w-24', type: 'select', options: UNITS },
+    { key: 'min_quantity', label: 'Min Qty', width: 'w-20', type: 'number' },
+    { key: 'status', label: 'Status', width: 'w-28', type: 'select', options: STATUS_OPTIONS },
+    { key: 'location', label: 'Location', width: 'w-40', type: 'select', options: STORAGE_LOCATIONS },
+    { key: 'expiration_date', label: 'Exp. Date', width: 'w-32', type: 'date' },
+    { key: 'lot_number', label: 'Lot #', width: 'w-28', type: 'text' },
+    { key: 'supplier', label: 'Supplier', width: 'w-36', type: 'select', options: SUPPLIERS },
+    { key: 'unit_cost', label: 'Unit Cost', width: 'w-24', type: 'text' },
+    { key: 'notes', label: 'Notes', width: 'w-48', type: 'text' },
+  ]
+
+  const statusColors: Record<string, string> = {
+    'In Stock': 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    'Low Stock': 'bg-amber-50 text-amber-700 border-amber-200',
+    'Critical': 'bg-red-50 text-red-700 border-red-200',
+    'On Order': 'bg-blue-50 text-blue-700 border-blue-200',
+    'Expired': 'bg-gray-100 text-gray-500 border-gray-200',
+    'Recalled': 'bg-purple-50 text-purple-700 border-purple-200',
+    'Discontinued': 'bg-gray-50 text-gray-400 border-gray-100',
+  }
+
+  const isExpiringSoon = (dateStr: string) => {
+    if (!dateStr) return false
+    const diff = (new Date(dateStr).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+    return diff >= 0 && diff <= 90
+  }
+
+  const isExpired = (dateStr: string) => {
+    if (!dateStr) return false
+    return new Date(dateStr).getTime() < Date.now()
   }
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
-      <div className="flex justify-between items-end mb-6">
+    <div className="animate-in fade-in slide-in-from-bottom-2 duration-500" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
+      {/* Header */}
+      <div className="flex items-start justify-between mb-5">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Clinic Inventory</h1>
-          <p className="text-gray-500 mt-1">Manage medications, supplies, and equipment.</p>
+          <p className="text-sm text-gray-400 mt-0.5">{items.length} items · Click any cell to edit · Changes save automatically</p>
         </div>
-        <button onClick={() => setShowForm(!showForm)} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-lg font-medium shadow-sm hover:bg-blue-700 transition-colors">
-          {showForm ? 'Cancel' : <><Plus size={18} /> Add Item</>}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowConnectModal(true)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded border transition-colors ${sheetConnected ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M14.5 2H6C4.9 2 4 2.9 4 4V20C4 21.1 4.9 22 6 22H18C19.1 22 20 21.1 20 20V7.5L14.5 2Z" fill={sheetConnected ? '#10b981' : '#9ca3af'} fillOpacity="0.2" stroke={sheetConnected ? '#10b981' : '#6b7280'} strokeWidth="1.5"/>
+              <path d="M14 2V8H20" stroke={sheetConnected ? '#10b981' : '#6b7280'} strokeWidth="1.5"/>
+              <path d="M8 13H16M8 17H12" stroke={sheetConnected ? '#10b981' : '#6b7280'} strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+            {sheetConnected ? 'Sheets Connected' : 'Link Google Sheets'}
+          </button>
+          <button
+            onClick={addRow}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+          >
+            <Plus size={13} /> Add Row
+          </button>
+          {selectedRows.size > 0 && (
+            <button onClick={deleteSelected} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-red-50 text-red-600 border border-red-100 rounded hover:bg-red-100 transition-colors">
+              Delete {selectedRows.size} row{selectedRows.size > 1 ? 's' : ''}
+            </button>
+          )}
+        </div>
       </div>
 
-      {showForm && (
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-blue-100 animate-in fade-in">
-          <h2 className="text-lg font-bold text-gray-900 mb-4">New Inventory Item</h2>
-          <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <input type="text" placeholder="Item Name" className="border border-gray-300 p-2.5 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 outline-none" value={form.itemName} onChange={e => setForm({...form, itemName: e.target.value})} required/>
-            <select className="border border-gray-300 p-2.5 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 outline-none" value={form.category} onChange={e => setForm({...form, category: e.target.value})}>
-              <option>Medication</option>
-              <option>Supply</option>
-              <option>Equipment</option>
-            </select>
-            <input type="number" placeholder="Quantity" className="border border-gray-300 p-2.5 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 outline-none" value={form.quantity} onChange={e => setForm({...form, quantity: parseInt(e.target.value)})} required min="0"/>
-            <input type="date" className="border border-gray-300 p-2.5 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 outline-none" value={form.expirationDate} onChange={e => setForm({...form, expirationDate: e.target.value})} />
-            <div className="md:col-span-4 flex justify-end mt-2">
-              <button type="submit" className="bg-blue-600 text-white px-6 py-2.5 rounded-lg font-medium hover:bg-blue-700">Save Item</button>
+      {/* Status bar alerts */}
+      {(lowStockCount > 0 || expiringCount > 0) && (
+        <div className="flex gap-3 mb-4">
+          {lowStockCount > 0 && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
+              <AlertTriangle size={13} className="text-amber-500 flex-shrink-0" />
+              <span><strong>{lowStockCount}</strong> item{lowStockCount > 1 ? 's' : ''} at low or critical stock</span>
             </div>
-          </form>
+          )}
+          {expiringCount > 0 && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 border border-orange-200 rounded text-xs text-orange-800">
+              <Clock size={13} className="text-orange-500 flex-shrink-0" />
+              <span><strong>{expiringCount}</strong> item{expiringCount > 1 ? 's' : ''} expiring within 90 days</span>
+            </div>
+          )}
         </div>
       )}
 
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-        <table className="w-full text-left border-collapse">
-          <thead className="bg-gray-50 border-b border-gray-200">
+      {/* Tabs + filters row */}
+      <div className="flex items-center justify-between mb-0 border-b border-gray-200">
+        <div className="flex items-center">
+          {(['all', 'medications', 'supplies', 'equipment'] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-4 py-2.5 text-xs font-medium capitalize border-b-2 transition-colors -mb-px ${
+                activeTab === tab ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {tab === 'all' ? `All Items (${items.length})` : tab === 'medications' ? `Medications & Vaccines` : tab === 'supplies' ? `Supplies & PPE` : `Equipment`}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 pb-2">
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search items, NDC, lot#..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="pl-7 pr-3 py-1.5 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-400 w-52"
+            />
+          </div>
+          <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="text-xs border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400 text-gray-600">
+            <option value="All">All Status</option>
+            {STATUS_OPTIONS.map(s => <option key={s}>{s}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* The spreadsheet */}
+      <div className="overflow-x-auto border border-gray-200 border-t-0" style={{ maxHeight: 'calc(100vh - 320px)', overflowY: 'auto' }}>
+        <table className="w-full text-left border-collapse" style={{ minWidth: '1400px' }}>
+          <thead className="sticky top-0 z-10 bg-gray-50 border-b border-gray-200">
             <tr>
-              <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Item Name</th>
-              <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Category</th>
-              <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Quantity</th>
-              <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Expiration</th>
-              <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Actions</th>
+              {/* Row number + checkbox */}
+              <th className="w-10 px-2 py-2 border-r border-gray-200">
+                <input
+                  type="checkbox"
+                  className="w-3 h-3 text-blue-600 rounded"
+                  checked={selectedRows.size === filtered.length && filtered.length > 0}
+                  onChange={e => setSelectedRows(e.target.checked ? new Set(filtered.map(i => i.id)) : new Set())}
+                />
+              </th>
+              <th className="w-8 px-2 py-2 text-xs text-gray-300 font-normal border-r border-gray-100">#</th>
+              {columns.map(col => (
+                <th
+                  key={col.key}
+                  onClick={() => handleSort(col.key)}
+                  className={`${col.width} px-2 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors border-r border-gray-100 whitespace-nowrap select-none`}
+                >
+                  {col.label}<SortIcon col={col.key} />
+                </th>
+              ))}
+              <th className="w-16 px-2 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">Save</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
-            {items.map(item => (
-              <tr key={item.id} className="hover:bg-gray-50 transition-colors">
-                <td className="p-4 font-medium text-gray-900">
-                  <div className="flex items-center gap-3">
-                    <div className={`p-2 rounded-lg ${item.category === 'Medication' ? 'bg-rose-50 text-rose-600' : item.category === 'Equipment' ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-600'}`}>
-                      <Package size={16} />
-                    </div>
-                    {item.item_name}
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={columns.length + 3} className="py-16 text-center text-sm text-gray-400">Loading inventory...</td></tr>
+            ) : filtered.length === 0 ? (
+              <tr>
+                <td colSpan={columns.length + 3} className="py-16 text-center">
+                  <div className="text-gray-400 text-sm">
+                    {search || filterCategory !== 'All' || filterStatus !== 'All' ? 'No items match your filters.' : 'No inventory items yet.'}
                   </div>
-                </td>
-                <td className="p-4"><span className="px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700 border border-gray-200">{item.category}</span></td>
-                <td className="p-4">
-                  <span className={`font-mono font-bold ${item.quantity < 10 ? 'text-rose-600' : 'text-gray-700'}`}>{item.quantity}</span>
-                  {item.quantity < 10 && <span className="ml-2 text-xs text-rose-500 font-medium">Low Stock</span>}
-                </td>
-                <td className="p-4 text-sm text-gray-500">{item.expiration_date ? new Date(item.expiration_date).toLocaleDateString() : 'N/A'}</td>
-                <td className="p-4 text-right">
-                  <div className="flex justify-end gap-2">
-                    <button onClick={() => handleUpdateQuantity(item.id, item.quantity - 1)} className="p-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg transition-colors">-</button>
-                    <button onClick={() => handleUpdateQuantity(item.id, item.quantity + 1)} className="p-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg transition-colors">+</button>
-                  </div>
+                  {!search && <button onClick={addRow} className="mt-3 text-xs text-blue-600 hover:underline">+ Add first item</button>}
                 </td>
               </tr>
-            ))}
-            {items.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-gray-500">No inventory items found.</td></tr>}
+            ) : filtered.map((item, idx) => {
+              const isSaving = savingIds.has(item.id)
+              const isSelected = selectedRows.has(item.id)
+              const rowClass = isSelected ? 'bg-blue-50' : idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'
+
+              return (
+                <tr
+                  key={item.id}
+                  className={`${rowClass} hover:bg-blue-50/60 transition-colors border-b border-gray-100 group ${item.isNew ? 'ring-1 ring-inset ring-blue-300' : ''}`}
+                >
+                  <td className="px-2 py-0.5 border-r border-gray-100">
+                    <input
+                      type="checkbox"
+                      className="w-3 h-3 text-blue-600 rounded"
+                      checked={isSelected}
+                      onChange={e => setSelectedRows(prev => {
+                        const s = new Set(prev)
+                        e.target.checked ? s.add(item.id) : s.delete(item.id)
+                        return s
+                      })}
+                    />
+                  </td>
+                  <td className="px-2 py-0.5 text-xs text-gray-300 border-r border-gray-100 text-right">{idx + 1}</td>
+
+                  {/* Item Name */}
+                  <td className="border-r border-gray-100">
+                    <SheetCell value={item.item_name} type="text" onChange={v => updateCell(item.id, 'item_name', v)} className="font-medium text-gray-900 w-full" />
+                  </td>
+                  {/* NDC Code */}
+                  <td className="border-r border-gray-100">
+                    <SheetCell value={item.ndc_code} type="text" onChange={v => updateCell(item.id, 'ndc_code', v)} className="font-mono text-gray-500 text-xs w-full" />
+                  </td>
+                  {/* Category */}
+                  <td className="border-r border-gray-100">
+                    <SheetCell value={item.category} type="select" options={INVENTORY_CATEGORIES} onChange={v => updateCell(item.id, 'category', v)} className="w-full" />
+                  </td>
+                  {/* Quantity */}
+                  <td className="border-r border-gray-100">
+                    <SheetCell
+                      value={item.quantity}
+                      type="number"
+                      onChange={v => updateCell(item.id, 'quantity', v)}
+                      className={`font-mono font-semibold w-full ${item.quantity <= 0 ? 'text-red-600' : item.quantity < (item.min_quantity || 10) ? 'text-amber-600' : 'text-gray-700'}`}
+                    />
+                  </td>
+                  {/* Unit */}
+                  <td className="border-r border-gray-100">
+                    <SheetCell value={item.unit || 'units'} type="select" options={UNITS} onChange={v => updateCell(item.id, 'unit', v)} className="text-gray-500 w-full" />
+                  </td>
+                  {/* Min Qty */}
+                  <td className="border-r border-gray-100">
+                    <SheetCell value={item.min_quantity || 10} type="number" onChange={v => updateCell(item.id, 'min_quantity', v)} className="text-gray-400 w-full" />
+                  </td>
+                  {/* Status */}
+                  <td className="border-r border-gray-100 px-1.5 py-1">
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border whitespace-nowrap ${statusColors[item.status] || 'bg-gray-100 text-gray-500'}`}>
+                      {item.status}
+                    </span>
+                  </td>
+                  {/* Location */}
+                  <td className="border-r border-gray-100">
+                    <SheetCell value={item.location || 'Pharmacy Cabinet A'} type="select" options={STORAGE_LOCATIONS} onChange={v => updateCell(item.id, 'location', v)} className="text-gray-600 w-full" />
+                  </td>
+                  {/* Expiration Date */}
+                  <td className="border-r border-gray-100">
+                    <SheetCell
+                      value={item.expiration_date ? item.expiration_date.split('T')[0] : ''}
+                      type="date"
+                      onChange={v => updateCell(item.id, 'expiration_date', v)}
+                      className={`w-full ${isExpired(item.expiration_date) ? 'text-red-600 font-medium' : isExpiringSoon(item.expiration_date) ? 'text-amber-600' : 'text-gray-600'}`}
+                    />
+                  </td>
+                  {/* Lot # */}
+                  <td className="border-r border-gray-100">
+                    <SheetCell value={item.lot_number} type="text" onChange={v => updateCell(item.id, 'lot_number', v)} className="font-mono text-xs text-gray-500 w-full" />
+                  </td>
+                  {/* Supplier */}
+                  <td className="border-r border-gray-100">
+                    <SheetCell value={item.supplier || 'McKesson'} type="select" options={SUPPLIERS} onChange={v => updateCell(item.id, 'supplier', v)} className="text-gray-600 w-full" />
+                  </td>
+                  {/* Unit Cost */}
+                  <td className="border-r border-gray-100">
+                    <SheetCell value={item.unit_cost} type="text" onChange={v => updateCell(item.id, 'unit_cost', v)} className="font-mono text-gray-600 w-full" />
+                  </td>
+                  {/* Notes */}
+                  <td className="border-r border-gray-100">
+                    <SheetCell value={item.notes} type="text" onChange={v => updateCell(item.id, 'notes', v)} className="text-gray-400 italic text-xs w-full" />
+                  </td>
+                  {/* Save (for new rows) */}
+                  <td className="px-2">
+                    {item.isNew ? (
+                      <button
+                        onClick={() => saveNewRow(item.id)}
+                        disabled={!item.item_name || isSaving}
+                        className="text-xs bg-blue-600 text-white px-2.5 py-1 rounded hover:bg-blue-700 disabled:opacity-40 transition-colors whitespace-nowrap"
+                      >
+                        {isSaving ? '...' : 'Save'}
+                      </button>
+                    ) : isSaving ? (
+                      <span className="text-xs text-blue-400">saving…</span>
+                    ) : item.isDirty ? (
+                      <span className="text-xs text-amber-400">●</span>
+                    ) : (
+                      <span className="text-xs text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity">✓</span>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
+
+        {/* Footer stats bar */}
+        {filtered.length > 0 && (
+          <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-4 py-2 flex items-center gap-6 text-xs text-gray-500">
+            <span>{filtered.length} row{filtered.length !== 1 ? 's' : ''}</span>
+            {selectedRows.size > 0 && <span className="text-blue-600">{selectedRows.size} selected</span>}
+            <span>Total qty: <strong className="text-gray-700">{filtered.reduce((s, i) => s + (i.quantity || 0), 0).toLocaleString()}</strong></span>
+            <span>Low/critical: <strong className="text-amber-600">{filtered.filter(i => ['Low Stock', 'Critical'].includes(i.status)).length}</strong></span>
+            <span>Expiring ≤90d: <strong className="text-orange-600">{filtered.filter(i => isExpiringSoon(i.expiration_date)).length}</strong></span>
+          </div>
+        )}
       </div>
+
+      {/* Google Sheets connect modal */}
+      {showConnectModal && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => setShowConnectModal(false)}>
+          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-base font-semibold text-gray-900">Link Google Sheets</h3>
+                <p className="text-xs text-gray-500 mt-1">Sync inventory data with a Google Sheets spreadsheet for offline access and sharing.</p>
+              </div>
+              <button onClick={() => setShowConnectModal(false)} className="text-gray-400 hover:text-gray-600">
+                <XCircle size={18} />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Google Sheets URL</label>
+                <input
+                  type="url"
+                  placeholder="https://docs.google.com/spreadsheets/d/..."
+                  value={sheetUrl}
+                  onChange={e => setSheetUrl(e.target.value)}
+                  className="w-full border border-gray-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div className="bg-blue-50 rounded-lg p-3 text-xs text-blue-800">
+                <p className="font-medium mb-1">Setup Instructions</p>
+                <ol className="space-y-1 list-decimal list-inside text-blue-700">
+                  <li>Open or create a Google Sheets spreadsheet</li>
+                  <li>Set sharing to "Anyone with the link can edit"</li>
+                  <li>Paste the sheet URL above</li>
+                  <li>Install the Envision Sheets Add-on from the marketplace</li>
+                </ol>
+              </div>
+              <div className="flex justify-end gap-2">
+                <button onClick={() => setShowConnectModal(false)} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded hover:bg-gray-50">Cancel</button>
+                <button
+                  onClick={() => { if (sheetUrl) { setSheetConnected(true); setShowConnectModal(false) } }}
+                  disabled={!sheetUrl}
+                  className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40 transition-colors"
+                >
+                  Connect Sheet
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
