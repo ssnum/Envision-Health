@@ -1614,6 +1614,56 @@ const defaultNewRow = () => ({
   isDirty: false,
 })
 
+// ── Google Sheets import types ──
+type SheetStep = 'url' | 'mapping' | 'preview' | 'importing'
+type ColumnMapping = Record<string, string> // inventoryField -> sheetHeader
+
+const INVENTORY_FIELD_LABELS: Record<string, string> = {
+  item_name: 'Item Name *',
+  quantity: 'Quantity *',
+  category: 'Category',
+  unit: 'Unit',
+  expiration_date: 'Expiration Date',
+  ndc_code: 'NDC / Drug Code',
+  lot_number: 'Lot Number',
+  location: 'Storage Location',
+  supplier: 'Supplier',
+  unit_cost: 'Unit Cost',
+  min_quantity: 'Min Quantity',
+  notes: 'Notes',
+}
+
+// Use Claude AI to suggest column mappings
+const autoMapColumns = async (headers: string[]): Promise<ColumnMapping> => {
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        messages: [{
+          role: 'user',
+          content: `You are mapping spreadsheet column headers to clinic inventory fields.
+
+Sheet headers: ${JSON.stringify(headers)}
+
+Inventory fields to map to: ${JSON.stringify(Object.keys(INVENTORY_FIELD_LABELS))}
+
+Return ONLY a JSON object mapping inventory field names to the best matching header string (or null if no match). Example: {"item_name": "Product Name", "quantity": "Qty", "expiration_date": null}
+
+Only return the JSON object, nothing else.`
+        }]
+      })
+    })
+    const data = await res.json()
+    const text = data.content?.[0]?.text || '{}'
+    return JSON.parse(text.replace(/```json|```/g, '').trim())
+  } catch {
+    return {}
+  }
+}
+
 const Inventory = ({ token, logout }: { token: string, logout: () => void }) => {
   const [items, setItems] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -1626,8 +1676,17 @@ const Inventory = ({ token, logout }: { token: string, logout: () => void }) => 
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set())
   const [activeTab, setActiveTab] = useState<'all'|'medications'|'supplies'|'equipment'>('all')
   const [showConnectModal, setShowConnectModal] = useState(false)
-  const [sheetUrl, setSheetUrl] = useState('')
   const [sheetConnected, setSheetConnected] = useState(false)
+
+  // Sheet import state
+  const [sheetStep, setSheetStep] = useState<SheetStep>('url')
+  const [sheetUrl, setSheetUrl] = useState('')
+  const [sheetHeaders, setSheetHeaders] = useState<string[]>([])
+  const [sheetRows, setSheetRows] = useState<string[][]>([])
+  const [columnMapping, setColumnMapping] = useState<ColumnMapping>({})
+  const [mappingLoading, setMappingLoading] = useState(false)
+  const [sheetError, setSheetError] = useState('')
+  const [importProgress, setImportProgress] = useState(0)
 
   const fetchInventory = async () => {
     setLoading(true)
@@ -1647,6 +1706,125 @@ const Inventory = ({ token, logout }: { token: string, logout: () => void }) => 
   }
 
   useEffect(() => { fetchInventory() }, [])
+
+  // Extract sheet ID from any Google Sheets URL format
+  const extractSheetId = (url: string) => {
+    const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/)
+    return match ? match[1] : null
+  }
+
+  const fetchSheetData = async () => {
+    setSheetError('')
+    setMappingLoading(true)
+    const sheetId = extractSheetId(sheetUrl)
+    if (!sheetId) {
+      setSheetError('Invalid Google Sheets URL. Make sure it looks like: https://docs.google.com/spreadsheets/d/...')
+      setMappingLoading(false)
+      return
+    }
+    try {
+      // Google Sheets JSON export (requires sheet to be publicly shared)
+      const exportUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json`
+      const res = await fetch(exportUrl)
+      if (!res.ok) throw new Error('Could not fetch sheet')
+      const text = await res.text()
+      // Strip Google's JSONP wrapper
+      const json = JSON.parse(text.replace(/^[^(]*\(/, '').replace(/\);?\s*$/, ''))
+      const cols = json.table.cols as any[]
+      const rowData = json.table.rows as any[]
+
+      // Extract headers — use label if available, else fall back to column letter
+      const headers = cols.map((c: any) => c.label || c.id || '')
+      const nonEmptyHeaders = headers.filter((h: string) => h.trim())
+      if (nonEmptyHeaders.length === 0) throw new Error('No headers found in sheet')
+
+      // Extract data rows
+      const rows = rowData.map((r: any) =>
+        cols.map((_: any, i: number) => {
+          const cell = r.c?.[i]
+          if (!cell || cell.v === null || cell.v === undefined) return ''
+          return String(cell.f || cell.v)
+        })
+      ).filter(row => row.some(cell => cell.trim()))
+
+      setSheetHeaders(headers)
+      setSheetRows(rows)
+
+      // Use Claude to auto-map columns
+      const suggested = await autoMapColumns(headers)
+      setColumnMapping(suggested)
+      setSheetStep('mapping')
+    } catch (e: any) {
+      setSheetError(e.message?.includes('fetch') || e.message?.includes('CORS')
+        ? 'Could not access the sheet. Make sure sharing is set to "Anyone with the link can view".'
+        : (e.message || 'Failed to read sheet. Check the URL and sharing settings.'))
+    }
+    setMappingLoading(false)
+  }
+
+  const importFromSheet = async () => {
+    setSheetStep('importing')
+    setImportProgress(0)
+    const inventoryFields = Object.keys(INVENTORY_FIELD_LABELS)
+    let imported = 0
+
+    for (let i = 0; i < sheetRows.length; i++) {
+      const row = sheetRows[i]
+      const mapped: any = {
+        unit: 'units', min_quantity: 10, location: 'Pharmacy Cabinet A',
+        supplier: 'McKesson', category: 'Medication', quantity: 0,
+      }
+      // Map each field using columnMapping
+      for (const field of inventoryFields) {
+        const header = columnMapping[field]
+        if (!header) continue
+        const colIdx = sheetHeaders.indexOf(header)
+        if (colIdx === -1) continue
+        const val = row[colIdx]?.trim()
+        if (!val) continue
+        if (field === 'quantity' || field === 'min_quantity') {
+          mapped[field] = parseInt(val.replace(/[^0-9]/g, '')) || 0
+        } else {
+          mapped[field] = val
+        }
+      }
+      if (!mapped.item_name) continue // skip rows with no item name
+
+      try {
+        await fetch(API_URL + '/api/protected/inventory', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            itemName: mapped.item_name,
+            category: mapped.category || 'Medication',
+            quantity: mapped.quantity || 0,
+            expirationDate: mapped.expiration_date || '',
+          })
+        })
+        imported++
+      } catch(e) { console.error(e) }
+      setImportProgress(Math.round(((i + 1) / sheetRows.length) * 100))
+    }
+
+    setSheetConnected(true)
+    setShowConnectModal(false)
+    setSheetStep('url')
+    setSheetUrl('')
+    setSheetHeaders([])
+    setSheetRows([])
+    setColumnMapping({})
+    await fetchInventory()
+  }
+
+  const resetModal = () => {
+    setSheetStep('url')
+    setSheetUrl('')
+    setSheetHeaders([])
+    setSheetRows([])
+    setColumnMapping({})
+    setSheetError('')
+    setShowConnectModal(false)
+  }
 
   const addRow = () => {
     setItems(prev => [...prev, defaultNewRow()])
@@ -2024,50 +2202,159 @@ const Inventory = ({ token, logout }: { token: string, logout: () => void }) => 
         )}
       </div>
 
-      {/* Google Sheets connect modal */}
+      {/* Google Sheets smart import modal */}
       {showConnectModal && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => setShowConnectModal(false)}>
-          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
-            <div className="flex items-start justify-between mb-4">
-              <div>
-                <h3 className="text-base font-semibold text-gray-900">Link Google Sheets</h3>
-                <p className="text-xs text-gray-500 mt-1">Sync inventory data with a Google Sheets spreadsheet for offline access and sharing.</p>
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={resetModal}>
+          <div className="bg-white rounded-xl shadow-2xl w-full mx-4 overflow-hidden" style={{ maxWidth: sheetStep === 'mapping' ? '680px' : '480px' }} onClick={e => e.stopPropagation()}>
+
+            {/* Modal header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <div className="flex items-center gap-3">
+                <div className="bg-emerald-50 p-1.5 rounded">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M14.5 2H6C4.9 2 4 2.9 4 4V20C4 21.1 4.9 22 6 22H18C19.1 22 20 21.1 20 20V7.5L14.5 2Z" fill="#d1fae5" stroke="#10b981" strokeWidth="1.5"/><path d="M14 2V8H20" stroke="#10b981" strokeWidth="1.5"/><path d="M8 13H16M8 17H12" stroke="#10b981" strokeWidth="1.5" strokeLinecap="round"/></svg>
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900">Import from Google Sheets</h3>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {sheetStep === 'url' && 'Paste your sheet URL to get started'}
+                    {sheetStep === 'mapping' && `${sheetRows.length} rows found — review column mapping`}
+                    {sheetStep === 'preview' && 'Preview import data'}
+                    {sheetStep === 'importing' && 'Importing rows...'}
+                  </p>
+                </div>
               </div>
-              <button onClick={() => setShowConnectModal(false)} className="text-gray-400 hover:text-gray-600">
-                <XCircle size={18} />
-              </button>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Google Sheets URL</label>
-                <input
-                  type="url"
-                  placeholder="https://docs.google.com/spreadsheets/d/..."
-                  value={sheetUrl}
-                  onChange={e => setSheetUrl(e.target.value)}
-                  className="w-full border border-gray-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <div className="bg-blue-50 rounded-lg p-3 text-xs text-blue-800">
-                <p className="font-medium mb-1">Setup Instructions</p>
-                <ol className="space-y-1 list-decimal list-inside text-blue-700">
-                  <li>Open or create a Google Sheets spreadsheet</li>
-                  <li>Set sharing to "Anyone with the link can edit"</li>
-                  <li>Paste the sheet URL above</li>
-                  <li>Install the Envision Sheets Add-on from the marketplace</li>
-                </ol>
-              </div>
-              <div className="flex justify-end gap-2">
-                <button onClick={() => setShowConnectModal(false)} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded hover:bg-gray-50">Cancel</button>
-                <button
-                  onClick={() => { if (sheetUrl) { setSheetConnected(true); setShowConnectModal(false) } }}
-                  disabled={!sheetUrl}
-                  className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40 transition-colors"
-                >
-                  Connect Sheet
-                </button>
+              {/* Step indicators */}
+              <div className="flex items-center gap-2">
+                {(['url', 'mapping', 'importing'] as SheetStep[]).map((s, i) => (
+                  <div key={s} className={`w-2 h-2 rounded-full transition-colors ${sheetStep === s ? 'bg-blue-500' : ['url','mapping','importing'].indexOf(sheetStep) > i ? 'bg-emerald-400' : 'bg-gray-200'}`} />
+                ))}
+                <button onClick={resetModal} className="ml-2 text-gray-300 hover:text-gray-500 transition-colors"><XCircle size={18} /></button>
               </div>
             </div>
+
+            {/* Step 1: URL input */}
+            {sheetStep === 'url' && (
+              <div className="p-6 space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Google Sheets URL</label>
+                  <input
+                    type="url"
+                    placeholder="https://docs.google.com/spreadsheets/d/..."
+                    value={sheetUrl}
+                    onChange={e => { setSheetUrl(e.target.value); setSheetError('') }}
+                    onKeyDown={e => e.key === 'Enter' && sheetUrl && fetchSheetData()}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    autoFocus
+                  />
+                  {sheetError && <p className="text-xs text-red-500 mt-2 flex items-start gap-1"><AlertTriangle size={12} className="mt-0.5 flex-shrink-0" />{sheetError}</p>}
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-600 space-y-1">
+                  <p className="font-medium text-gray-700">Before importing:</p>
+                  <p>1. Open your Google Sheet</p>
+                  <p>2. Click <strong>Share</strong> → <strong>Anyone with the link</strong> → set to <strong>Viewer</strong></p>
+                  <p>3. Copy and paste the URL above</p>
+                  <p className="text-gray-400 mt-2">Your sheet can have any column names — Claude will auto-detect what's what.</p>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button onClick={resetModal} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
+                  <button
+                    onClick={fetchSheetData}
+                    disabled={!sheetUrl || mappingLoading}
+                    className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors flex items-center gap-2"
+                  >
+                    {mappingLoading ? <><Activity size={14} className="animate-spin" /> Analyzing sheet...</> : 'Continue →'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 2: Column mapping */}
+            {sheetStep === 'mapping' && (
+              <div className="p-6 space-y-5">
+                <div className="text-xs text-gray-500 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2.5">
+                  Claude detected <strong className="text-gray-700">{sheetHeaders.filter(h => h).length} columns</strong> and <strong className="text-gray-700">{sheetRows.length} data rows</strong>. Review the mapping below and adjust if needed.
+                </div>
+
+                <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                  {Object.entries(INVENTORY_FIELD_LABELS).map(([field, label]) => (
+                    <div key={field} className="grid grid-cols-2 gap-3 items-center">
+                      <div className="text-xs text-gray-600">
+                        {label}
+                        {columnMapping[field] && <span className="ml-1.5 text-emerald-500">✓</span>}
+                      </div>
+                      <select
+                        value={columnMapping[field] || ''}
+                        onChange={e => setColumnMapping(prev => ({ ...prev, [field]: e.target.value || '' }))}
+                        className={`text-xs border rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400 ${columnMapping[field] ? 'border-emerald-200 bg-emerald-50/50' : 'border-gray-200'}`}
+                      >
+                        <option value="">— skip this field —</option>
+                        {sheetHeaders.filter(h => h).map(h => (
+                          <option key={h} value={h}>{h}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Preview first 3 rows */}
+                <div>
+                  <p className="text-xs font-medium text-gray-500 mb-2">Sample data preview</p>
+                  <div className="overflow-x-auto border border-gray-100 rounded-lg">
+                    <table className="w-full text-xs">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          {sheetHeaders.filter(h => h).slice(0, 5).map(h => (
+                            <th key={h} className="px-2 py-1.5 text-gray-400 font-medium text-left whitespace-nowrap">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {sheetRows.slice(0, 3).map((row, i) => (
+                          <tr key={i}>
+                            {sheetHeaders.filter(h => h).slice(0, 5).map((h, j) => {
+                              const idx = sheetHeaders.indexOf(h)
+                              return <td key={j} className="px-2 py-1.5 text-gray-600 whitespace-nowrap max-w-32 truncate">{row[idx] || '—'}</td>
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="flex justify-between items-center pt-1">
+                  <button onClick={() => setSheetStep('url')} className="text-xs text-gray-400 hover:text-gray-600">← Back</button>
+                  <div className="flex gap-2">
+                    <button onClick={resetModal} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
+                    <button
+                      onClick={importFromSheet}
+                      disabled={!columnMapping['item_name']}
+                      className="px-4 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-40 transition-colors flex items-center gap-2"
+                    >
+                      <CheckCircle2 size={14} /> Import {sheetRows.length} rows
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Step 3: Importing progress */}
+            {sheetStep === 'importing' && (
+              <div className="p-8 flex flex-col items-center gap-4">
+                <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center">
+                  <Activity size={22} className="text-blue-500 animate-spin" />
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-medium text-gray-800">Importing inventory...</p>
+                  <p className="text-xs text-gray-400 mt-1">{importProgress}% complete</p>
+                </div>
+                <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                  <div className="bg-blue-500 h-full rounded-full transition-all duration-300" style={{ width: `${importProgress}%` }} />
+                </div>
+                <p className="text-xs text-gray-400">Do not close this window</p>
+              </div>
+            )}
+
           </div>
         </div>
       )}
