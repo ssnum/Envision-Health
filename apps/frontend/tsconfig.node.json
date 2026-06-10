@@ -6,35 +6,17 @@
     "module": "ESNext",
     "types": ["node"],
     "skipLibCheck": true,
-
-    /* Bundler mode */
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
-<<<<<<< HEAD
     "verbatimModuleSyntax": false,
-=======
-    "verbatimModuleSyntax": true,
->>>>>>> origin/master
     "moduleDetection": "force",
     "noEmit": true,
-
-    /* Linting */
-<<<<<<< HEAD
     "strict": false,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
-=======
-    "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
->>>>>>> origin/master
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true
   },
   "include": ["vite.config.ts"]
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> origin/master
