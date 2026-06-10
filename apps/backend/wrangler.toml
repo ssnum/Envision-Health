@@ -8,5 +8,5 @@ binding = "AI"
 [[d1_databases]]
 binding = "DB"
 database_name = "envision_health_db"
-database_id = "fda3b4c3-cde8-4ec9-8cf9-c61d4c5165ee"
+database_id = "3b6b7d97-ff46-4d7e-a3a7-8ec87fb1ec97"
 

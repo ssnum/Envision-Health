@@ -160,17 +160,15 @@ app.post('/api/protected/vms/fliers/generate', async (c) => {
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Tone: ${tone}. Event details: ${eventDetails}` }
-<<<<<<< HEAD
+
       ]
     })
     return c.json({ flierCopy: response.response })
-=======
       ],
       max_tokens: 512
     })
     const result = response.result?.response || response.response || ''
     return c.json({ flierCopy: result })
->>>>>>> origin/master
   } catch (error: any) {
     return c.json({ error: error.message || 'AI generation failed' }, 500)
   }
@@ -314,18 +312,16 @@ app.post('/api/protected/grants/match', async (c) => {
   const { results: grants } = await c.env.DB.prepare('SELECT title, agency, requirements_text, url as amount FROM Grants').all()
   
   const grantsContext = JSON.stringify(grants)
-<<<<<<< HEAD
+
   const systemPrompt = `You are an expert AI grant matching assistant. Analyze the clinic metrics provided and match them against the following available grants:\n\n${grantsContext}\n\nReturn ONLY a JSON array of the top 3 best matching grants with the structure: [{"title": "grant title", "agency": "agency name", "match_score": 95, "reason": "brief explanation why it matches"}]. Do NOT include markdown formatting like \`\`\`json.`
-=======
   const systemPrompt = `You are an expert AI grant matching assistant. Analyze the clinic metrics provided and match them against the following available grants:\n\n${grantsContext}\n\nReturn ONLY a valid JSON array (no markdown, no code blocks) of the top 3 best matching grants with this exact structure: [{"title": "grant title", "agency": "agency name", "match_score": 95, "reason": "brief explanation"}]`
->>>>>>> origin/master
   
   try {
     const response = await c.env.AI.run('@cf/meta/llama-3-8b-instruct', {
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Clinic metrics: ${metrics}` }
-<<<<<<< HEAD
+
       ]
     })
     
@@ -339,7 +335,6 @@ app.post('/api/protected/grants/match', async (c) => {
       // Fallback if AI didn't format perfectly
       return c.json({ matches: [{ title: "AI format error", reason: response.response, match_score: 0 }]})
     }
-=======
       ],
       max_tokens: 1024
     })
@@ -372,7 +367,6 @@ app.post('/api/protected/grants/match', async (c) => {
     
     // Fallback if parsing failed
     return c.json({ matches: [{ title: "Grant matching unavailable", agency: "System", match_score: 0, reason: "AI service returned invalid format. Raw: " + responseText.substring(0, 100) }]})
->>>>>>> origin/master
   } catch (error: any) {
     return c.json({ error: error.message || 'AI generation failed' }, 500)
   }
@@ -389,17 +383,15 @@ app.post('/api/protected/grants/generate', async (c) => {
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
-<<<<<<< HEAD
+
       ]
     })
     return c.json({ proposal: response.response })
-=======
       ],
       max_tokens: 1024
     })
     const result = response.result?.response || response.response || ''
     return c.json({ proposal: result })
->>>>>>> origin/master
   } catch (error: any) {
     return c.json({ error: error.message || 'AI generation failed' }, 500)
   }
@@ -412,14 +404,13 @@ app.get('/api/protected/vms/events', async (c) => {
 })
 
 app.post('/api/protected/vms/events', async (c) => {
-<<<<<<< HEAD
+
   const { title, description, date, location, requiredVolunteers, endDate, category, isRecurring, recurrencePattern } = await c.req.json()
   const id = uuidv4()
   await c.env.DB.prepare(
     'INSERT INTO Events (id, title, description, date, location, required_volunteers, end_date, category, is_recurring, recurrence_pattern) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).bind(id, title, description, date, location, requiredVolunteers, endDate || null, category || 'General', isRecurring ? 1 : 0, recurrencePattern || null).run()
   return c.json({ message: 'Event created', id })
-=======
    const { title, description, date, location, requiredVolunteers, endDate, category, isRecurring, recurrencePattern, timeSlots } = await c.req.json()
    const id = uuidv4()
    await c.env.DB.prepare(
@@ -439,7 +430,6 @@ app.post('/api/protected/vms/events', async (c) => {
    }
 
    return c.json({ message: 'Event created', id })
->>>>>>> origin/master
 })
 
 app.get('/api/protected/vms/volunteers', async (c) => {
@@ -553,7 +543,7 @@ app.put('/api/protected/vms/hours/confirm/:id', async (c) => {
 
 // Legacy Shifts endpoint
 app.get('/api/protected/shifts', async (c) => {
-<<<<<<< HEAD
+
   const { results } = await c.env.DB.prepare('SELECT * FROM Shifts').all()
   return c.json(results)
 })
@@ -567,7 +557,6 @@ app.post('/api/protected/shifts', async (c) => {
   ).bind(id, user.id, startTime, endTime, roleAssigned, 'Scheduled').run()
   
   return c.json({ message: 'Shift created successfully' })
-=======
    const { results } = await c.env.DB.prepare('SELECT * FROM Shifts').all()
    return c.json(results)
 })
@@ -842,7 +831,6 @@ app.get('/api/protected/volunteers/dashboard', async (c) => {
     approved_volunteers: approvedVolunteers,
     recent_applications: recentApps.results
   })
->>>>>>> origin/master
 })
 
 
