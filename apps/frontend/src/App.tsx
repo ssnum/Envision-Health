@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Routes, Route, Link, useNavigate, Navigate, useLocation } from 'react-router-dom'
-import { Activity, Users, FileText, LogOut, Calendar, Plus, Search, Bell, TrendingUp, ShieldAlert, HeartPulse, Clock, Sparkles, CheckCircle2, AlertTriangle, ChevronRight, ArrowLeft, XCircle, MapPin, Package, Beaker, ChevronDown } from 'lucide-react'
+import { Activity, Users, FileText, LogOut, Calendar, Plus, Search, Bell, ShieldAlert, HeartPulse, Clock, Sparkles, CheckCircle2, AlertTriangle, ChevronRight, ArrowLeft, XCircle, MapPin, Package, ChevronDown } from 'lucide-react'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
 const API_URL = 'https://envision-health-backend.sahastasai.workers.dev'
@@ -189,7 +189,71 @@ const DropdownMenu = ({ label, items, role }: { label: string, items: { to: stri
   )
 }
 
-const Layout = ({ children, logout, role }: { children: React.ReactNode, logout: () => void, role: string }) => {
+const LayoutSearch = ({ token, role }: { token: string, role: string }) => {
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<any>(null)
+  const [open, setOpen] = useState(false)
+  const navigate = useNavigate()
+
+  const handleSearch = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value
+    setQuery(value)
+    if (value.length < 2) { setResults(null); setOpen(false); return }
+    try {
+      const res = await fetch(`${API_URL}/api/protected/search?q=${encodeURIComponent(value)}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      const data = await res.json()
+      setResults(data)
+      setOpen(true)
+    } catch (err) { /* ignore */ }
+  }
+
+  return (
+    <div className="relative w-56">
+      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+      <input type="text" value={query} onChange={handleSearch}
+        onFocus={() => query && setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 200)}
+        placeholder={role === 'Doctor' || role === 'Admin' ? 'Search patients...' : 'Search...'}
+        className="w-full pl-8 pr-3 py-1.5 text-sm bg-gray-50 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-400 focus:bg-white transition-all"
+      />
+      {open && results && (
+        <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-200 z-50 max-h-80 overflow-y-auto">
+          {results.patients?.length > 0 && (
+            <div className="p-2">
+              <p className="text-xs font-semibold text-gray-400 uppercase px-2 py-1">Patients</p>
+              {results.patients.map((p: any) => (
+                <button key={p.id} onMouseDown={() => { navigate(`/patients?id=${p.id}`); setOpen(false); setQuery('') }}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 rounded-md flex items-center gap-2">
+                  <Users size={13} className="text-gray-400 flex-shrink-0" />
+                  {p.first_name} {p.last_name}
+                </button>
+              ))}
+            </div>
+          )}
+          {results.volunteers?.length > 0 && (
+            <div className="p-2 border-t border-gray-100">
+              <p className="text-xs font-semibold text-gray-400 uppercase px-2 py-1">Volunteers</p>
+              {results.volunteers.map((v: any) => (
+                <button key={v.id} onMouseDown={() => { navigate('/volunteers'); setOpen(false); setQuery('') }}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 rounded-md flex items-center gap-2">
+                  <HeartPulse size={13} className="text-gray-400 flex-shrink-0" />
+                  {v.email}
+                </button>
+              ))}
+            </div>
+          )}
+          {(!results.patients?.length && !results.volunteers?.length) && (
+            <p className="text-sm text-gray-500 text-center p-4">No results found</p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const Layout = ({ children, logout, role, token }: { children: React.ReactNode, logout: () => void, role: string, token: string }) => {
   const overviewItems = [
     { to: '/', label: 'Dashboard', icon: Activity, roles: ['Admin', 'Doctor'] },
     { to: '/', label: 'My Portal', icon: Activity, roles: ['Patient'] },
@@ -217,14 +281,7 @@ const Layout = ({ children, logout, role }: { children: React.ReactNode, logout:
             <span className="text-sm font-semibold text-gray-900 tracking-tight">Envision</span>
           </Link>
 
-          <div className="relative w-56">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search..."
-              className="w-full pl-8 pr-3 py-1.5 text-sm bg-gray-50 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-400 focus:bg-white transition-all"
-            />
-          </div>
+          <LayoutSearch token={token} role={role} />
 
           <div className="w-px h-5 bg-gray-200 mx-1" />
 
@@ -491,7 +548,13 @@ const VolunteerPortal = ({ token, logout }: { token: string, logout: () => void 
           </div>
         </>
       )}
-      
+
+      {!isOpportunities && (
+        <div className="mb-6">
+          <VolunteerApplication token={token} />
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {events.slice(0, isOpportunities ? undefined : 3).map(e => (
           <div key={e.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col hover:shadow-lg hover:border-blue-200 transition-all group cursor-pointer" onClick={() => setSelectedEvent(e)}>
@@ -1236,6 +1299,7 @@ const Patients = ({ token, logout }: { token: string, logout: () => void }) => {
             { key: 'prescriptions', label: 'Prescriptions' },
             { key: 'labs', label: 'Lab Results' },
             { key: 'notes', label: 'Clinical Notes' },
+            { key: 'consent', label: 'Consent' },
           ].map(t => (
             <button key={t.key} onClick={() => navigate(`/patients?id=${selectedPatient.id}&tab=${t.key}`)}
               className={`px-4 py-2.5 text-sm border-b-2 transition-colors -mb-px ${tabParam === t.key ? 'border-blue-600 text-blue-600 font-medium' : 'border-transparent text-gray-500 hover:text-gray-800'}`}>
@@ -1335,6 +1399,12 @@ const Patients = ({ token, logout }: { token: string, logout: () => void }) => {
 
         {tabParam === 'notes' && (
           <ClinicalNotes patientId={selectedPatient.id} token={token} patientHistory={selectedPatient.medical_history} onUpdate={fetchPatients} />
+        )}
+
+        {tabParam === 'consent' && (
+          <div className="pt-6">
+            <ConsentForm patientId={selectedPatient.id} token={token} />
+          </div>
         )}
 
       </div>
@@ -2449,6 +2519,7 @@ const VolunteerCRM = ({ token, logout }: { token: string, logout: () => void }) 
     { key: 'events', label: 'Events' },
     { key: 'directory', label: 'Directory' },
     { key: 'hours', label: `Pending Hours${pendingHours.length > 0 ? ` (${pendingHours.length})` : ''}` },
+    { key: 'applications', label: 'Applications' },
     { key: 'marketing', label: 'Marketing' },
   ]
 
@@ -2794,6 +2865,10 @@ const VolunteerCRM = ({ token, logout }: { token: string, logout: () => void }) 
         </div>
       )}
 
+      {activeTab === 'applications' && (
+        <VolunteerApplicationsDashboard token={token} logout={logout} />
+      )}
+
       {/* ── Marketing ── */}
       {activeTab === 'marketing' && (
         <div className="space-y-8">
@@ -3043,6 +3118,163 @@ const AIWriter = ({ token, logout }: { token: string, logout: () => void }) => {
   )
 }
 
+const ConsentForm = ({ patientId, token }: { patientId: string, token: string }) => {
+  const [status, setStatus] = useState<string>('')
+  const [loading, setLoading] = useState(false)
+
+  const handleConsent = async (consentType: string) => {
+    setLoading(true)
+    try {
+      const res = await fetch(`${API_URL}/api/protected/patients/${patientId}/consent`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ consentType })
+      })
+      if (res.ok) setStatus('Consent recorded successfully')
+    } catch (err) {
+      setStatus('Error recording consent')
+    }
+    setLoading(false)
+  }
+
+  return (
+    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+      <h3 className="font-semibold text-blue-900 mb-2">Privacy & Consent</h3>
+      <p className="text-sm text-blue-800 mb-4">Approve or decline access to this patient's medical records for HIPAA compliance.</p>
+      <div className="flex gap-2">
+        <button onClick={() => handleConsent('PHI')} disabled={loading}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50">
+          Approve Access
+        </button>
+        <button onClick={() => handleConsent('Decline')} disabled={loading}
+          className="px-4 py-2 bg-gray-300 text-gray-900 rounded-lg hover:bg-gray-400 transition-colors disabled:opacity-50">
+          Decline
+        </button>
+      </div>
+      {status && <p className="text-sm mt-2 text-blue-900">{status}</p>}
+    </div>
+  )
+}
+
+const VolunteerApplication = ({ token }: { token: string }) => {
+  const [qualifications, setQualifications] = useState('')
+  const [submitted, setSubmitted] = useState(false)
+  const [loading, setLoading] = useState(false)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    try {
+      const res = await fetch(`${API_URL}/api/protected/volunteers/apply`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ qualifications })
+      })
+      if (res.ok) setSubmitted(true)
+    } catch (err) { console.error(err) }
+    setLoading(false)
+  }
+
+  if (submitted) return (
+    <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
+      <CheckCircle2 className="h-8 w-8 text-green-600 mx-auto mb-2" />
+      <p className="text-green-900 font-semibold">Application Submitted!</p>
+      <p className="text-sm text-green-800 mt-1">Your application is pending admin approval.</p>
+    </div>
+  )
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-6">
+      <h3 className="font-semibold text-gray-900 mb-4">Volunteer Application</h3>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Qualifications & Experience</label>
+          <textarea value={qualifications} onChange={(e) => setQualifications(e.target.value)}
+            placeholder="Describe your medical background, certifications, and volunteer experience..."
+            required className="w-full h-32 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+        </div>
+        <button type="submit" disabled={loading || !qualifications.trim()}
+          className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50">
+          {loading ? 'Submitting...' : 'Submit Application'}
+        </button>
+      </form>
+    </div>
+  )
+}
+
+const VolunteerApplicationsDashboard = ({ token, logout }: { token: string, logout: () => void }) => {
+  const [applications, setApplications] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [searchTerm, setSearchTerm] = useState('')
+
+  useEffect(() => { fetchApplications() }, [])
+
+  const fetchApplications = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/protected/volunteers/applications`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (res.status === 401) return logout()
+      setApplications(await res.json())
+    } catch (err) { console.error(err) }
+    setLoading(false)
+  }
+
+  const handleApprove = async (appId: string) => {
+    await fetch(`${API_URL}/api/protected/volunteers/applications/${appId}/approve`, {
+      method: 'PUT', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ approval_notes: 'Approved' })
+    })
+    fetchApplications()
+  }
+
+  const handleReject = async (appId: string) => {
+    await fetch(`${API_URL}/api/protected/volunteers/applications/${appId}/reject`, {
+      method: 'PUT', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ approval_notes: 'Rejected' })
+    })
+    fetchApplications()
+  }
+
+  const filtered = applications
+    .filter(a => a.status === 'Pending')
+    .filter(a => a.email?.toLowerCase().includes(searchTerm.toLowerCase()) || a.qualifications?.toLowerCase().includes(searchTerm.toLowerCase()))
+
+  if (loading) return <div className="p-8 text-center text-gray-500">Loading applications...</div>
+
+  return (
+    <div className="space-y-4">
+      <input type="text" placeholder="Search by email or qualifications..."
+        value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+        className="w-full px-4 py-2 border border-gray-200 rounded-lg text-sm focus:ring-1 focus:ring-blue-400 focus:outline-none" />
+      <div className="grid gap-4">
+        {filtered.length > 0 ? filtered.map((app) => (
+          <div key={app.id} className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm">
+            <div className="flex justify-between items-start mb-3">
+              <div>
+                <h3 className="font-semibold text-gray-900">{app.email}</h3>
+                <p className="text-xs text-gray-500">Applied {new Date(app.created_at).toLocaleDateString()}</p>
+              </div>
+              <span className="px-2.5 py-1 bg-yellow-100 text-yellow-800 text-xs font-medium rounded-full">Pending</span>
+            </div>
+            <p className="text-sm text-gray-700 mb-4 whitespace-pre-wrap">{app.qualifications}</p>
+            <div className="flex gap-2">
+              <button onClick={() => handleApprove(app.id)}
+                className="flex-1 px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors">Approve</button>
+              <button onClick={() => handleReject(app.id)}
+                className="flex-1 px-3 py-1.5 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 transition-colors">Reject</button>
+            </div>
+          </div>
+        )) : (
+          <div className="text-center p-8 bg-gray-50 rounded-lg">
+            <p className="text-gray-500 text-sm">No pending applications</p>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem('token') || '')
   const [role, setRole] = useState(localStorage.getItem('role') || 'Admin')
@@ -3063,7 +3295,7 @@ export default function App() {
   if (!token) return <AuthPage setToken={setToken} setRole={setRole} />
 
   return (
-    <Layout logout={logout} role={role}>
+    <Layout logout={logout} role={role} token={token}>
       <Routes>
         <Route path="/" element={
           role === 'Patient' ? <PatientPortal token={token} /> : 
