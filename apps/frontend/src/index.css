@@ -1,4 +1,5 @@
 @import "tailwindcss";
+<<<<<<< HEAD
  
 @theme {
   --font-sans: "Inter", system-ui, sans-serif;
@@ -10,3 +11,9 @@ html, body, #root {
   padding: 0;
   background-color: #f9fafb;
 }
+=======
+
+@theme {
+  --font-sans: "Inter", system-ui, sans-serif;
+}
+>>>>>>> origin/master

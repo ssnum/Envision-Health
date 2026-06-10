@@ -79,3 +79,38 @@ CREATE TABLE IF NOT EXISTS Grants (
     requirements_text TEXT,
     url TEXT
 );
+<<<<<<< HEAD
+=======
+
+CREATE TABLE IF NOT EXISTS PatientConsent (
+    id TEXT PRIMARY KEY,
+    patient_id TEXT NOT NULL,
+    consent_type TEXT NOT NULL,
+    status TEXT DEFAULT 'Pending',
+    date_provided DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(patient_id) REFERENCES Patients(id)
+);
+
+CREATE TABLE IF NOT EXISTS VolunteerApplications (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    qualifications TEXT NOT NULL,
+    status TEXT DEFAULT 'Pending',
+    approval_notes TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES Users(id)
+);
+
+CREATE TABLE IF NOT EXISTS EventTimeSlots (
+    id TEXT PRIMARY KEY,
+    event_id TEXT NOT NULL,
+    start_time DATETIME NOT NULL,
+    end_time DATETIME NOT NULL,
+    capacity INTEGER DEFAULT 1,
+    status TEXT DEFAULT 'Available',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(event_id) REFERENCES Events(id)
+);
+>>>>>>> origin/master
